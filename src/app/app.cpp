@@ -429,10 +429,11 @@ int RunUi(const std::wstring& configPath)
                 WatchStep(st);
                 UpdateTrayTip(st);
             }
-            ProcessPendingInjections(st);   // 每帧检查已到期的延迟注入
+            ProcessPendingInjections(st);   // 提交到期的注入（不阻塞本线程）
         } else if (!st.pending.empty()) {
             st.pending.clear();             // 关闭监听后不再补做注入
         }
+        CollectInjectResults(st);           // 取回后台注入线程的结果
 
         if (!st.showWindow) {   // 收进托盘时不渲染，只做后台工作
             Sleep(50);

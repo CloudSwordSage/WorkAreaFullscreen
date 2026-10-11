@@ -27,6 +27,14 @@ struct PendingInject {
     ULONGLONG   due = 0;   ///< GetTickCount64 到期时刻
 };
 
+/** 一次后台注入的结果，由工作线程写、主线程取。 */
+struct InjectResult {
+    DWORD       pid = 0;
+    std::string exe;
+    bool        ok = false;
+    std::string err;
+};
+
 /** 常驻宿主的全部可变状态；只在主线程访问（WndProc、扫描、注入都在主线程）。 */
 struct State {
     std::wstring configPath;                 ///< 配置文件绝对路径
@@ -37,6 +45,7 @@ struct State {
     bool        configDirty = false;         ///< 界面有未保存修改
 
     std::vector<DWORD>         injectedPids; ///< 已注入的进程，避免重复注入
+    std::vector<DWORD>         injecting;    ///< 已交给后台线程、尚未回结果的进程
     std::vector<PendingInject> pending;      ///< 等待延迟到期的注入
     ULONGLONG                  lastScanTick  = 0;
     ULONGLONG                  lastCheckTick = 0;
@@ -102,8 +111,11 @@ void DrawUi(State& st);
 /** 清理已退出进程，扫描目标列表，把新发现的目标排入 pending。 */
 void WatchStep(State& st);
 
-/** 处理到期的注入（每帧调用，注入耗时通常几毫秒）。 */
+/** 处理到期的注入：提交给后台线程，本函数不做阻塞调用。 */
 void ProcessPendingInjections(State& st);
+
+/** 取回后台注入线程的结果并记日志（主线程每帧调用）。 */
+void CollectInjectResults(State& st);
 
 /** 单次模式：按配置启动目标并注入，等待目标退出。 @return 目标退出码。 */
 int RunInjectOnce(const std::wstring& configPath, const std::wstring& exePath, int delayMsOverride);

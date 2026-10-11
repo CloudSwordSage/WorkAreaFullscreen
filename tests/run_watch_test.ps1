@@ -57,8 +57,21 @@ try {
     $appProc = Start-Process -FilePath $app -ArgumentList '--config', $cfgPath -PassThru
     Start-Sleep -Seconds 3                     # 等宿主进入扫描循环
 
-    $probeProc = Start-Process -FilePath $probeExe -ArgumentList '9000' -PassThru
-    Start-Sleep -Seconds 6                     # 覆盖扫描间隔 + 注入延迟
+    $probeProc = Start-Process -FilePath $probeExe -ArgumentList '12000' -PassThru
+
+    # 等注入发生，同时确认宿主主线程没有被注入阻塞（注入必须在后台线程做）
+    $bad = 0
+    $samples = 0
+    for ($i = 0; $i -lt 40; $i++) {
+        $appProc.Refresh()
+        if ($appProc.HasExited) { break }
+        $samples++
+        if (-not $appProc.Responding) { $bad++ }
+        Start-Sleep -Milliseconds 200
+    }
+    if ($bad -gt 3) {
+        throw "注入期间界面未响应 $bad/$samples 次：注入可能又回到了 UI 线程"
+    }
 
     if (-not (Test-Path $hookLog)) { throw '未产生 hook 日志：目标未被注入' }
     $log = Get-Content $hookLog -Raw

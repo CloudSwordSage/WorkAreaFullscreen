@@ -1,13 +1,24 @@
-// watch.cpp - 目标进程扫描、延迟注入，以及命令行单次注入模式。
+// watch.cpp - 目标进程扫描、后台延迟注入，以及命令行单次注入模式。
+//
+// 注入本身（OpenProcess / VirtualAllocEx / CreateRemoteThread / 等 LoadLibraryW）会阻塞
+// 数百毫秒到数秒，目标若是正在启动的游戏还可能卡在加载器锁上，因此常驻模式下注入一律
+// 交给后台线程，主线程只收结果，避免界面未响应。
 #include "app.h"
 
 #include <tlhelp32.h>
 
+#include <algorithm>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace waf::app {
 namespace {
+
+// 后台线程写、主线程取，用互斥量保护。
+std::mutex                g_resultMutex;
+std::vector<InjectResult> g_results;
 
 std::vector<DWORD> FindProcessesByName(const std::string& name)
 {
@@ -54,8 +65,10 @@ bool InjectDll(DWORD pid, const std::wstring& dllPath, std::string& err)
         return false;
     }
 
-    bool ok = WriteProcessMemory(proc, remote, dllPath.c_str(), bytes, nullptr) != FALSE;
-    if (!ok) {
+    bool ok      = false;
+    bool freeBuf = true;
+
+    if (!WriteProcessMemory(proc, remote, dllPath.c_str(), bytes, nullptr)) {
         err = "WriteProcessMemory 失败";
     } else {
         FARPROC loadLib = GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW");
@@ -64,19 +77,40 @@ bool InjectDll(DWORD pid, const std::wstring& dllPath, std::string& err)
                                              remote, 0, nullptr);
         if (!th) {
             err = "CreateRemoteThread 失败";
-            ok  = false;
         } else {
-            WaitForSingleObject(th, 15000);
-            DWORD hmod = 0;
-            GetExitCodeThread(th, &hmod);
+            const DWORD w = WaitForSingleObject(th, 30000);
+            if (w == WAIT_OBJECT_0) {
+                DWORD hmod = 0;
+                GetExitCodeThread(th, &hmod);
+                ok = (hmod != 0);
+                if (!ok) err = "目标进程内的 LoadLibraryW 返回空（路径或位数不符）";
+            } else {
+                // 目标迟迟不返回：不回收 remote，否则它仍在读取路径字符串时会崩掉目标。
+                err     = "等待目标加载 DLL 超时（目标可能仍在初始化）";
+                freeBuf = false;
+            }
             CloseHandle(th);
-            if (hmod == 0) err = "目标进程内的 LoadLibraryW 返回空（路径或位数不符）";
         }
     }
 
-    VirtualFreeEx(proc, remote, 0, MEM_RELEASE);
+    if (freeBuf) VirtualFreeEx(proc, remote, 0, MEM_RELEASE);
     CloseHandle(proc);
     return ok;
+}
+
+void RunInjectAsync(DWORD pid, const std::wstring& dllPath, const std::string& exe)
+{
+    std::thread([pid, dllPath, exe]() {
+        std::string  err;
+        InjectResult r;
+        r.pid = pid;
+        r.exe = exe;
+        r.ok  = InjectDll(pid, dllPath, err);
+        r.err = std::move(err);
+
+        std::lock_guard<std::mutex> lk(g_resultMutex);
+        g_results.push_back(std::move(r));
+    }).detach();
 }
 
 } // namespace
@@ -97,9 +131,11 @@ void WatchStep(State& st)
         if (!t.enabled || t.executable.empty()) continue;
 
         for (DWORD pid : FindProcessesByName(t.executable)) {
-            bool known = false;
-            for (DWORD p : st.injectedPids) if (p == pid) { known = true; break; }
-            for (const auto& pj : st.pending) if (pj.pid == pid) { known = true; break; }
+            const bool known =
+                std::find(st.injectedPids.begin(), st.injectedPids.end(), pid) != st.injectedPids.end() ||
+                std::find(st.injecting.begin(), st.injecting.end(), pid) != st.injecting.end() ||
+                std::any_of(st.pending.begin(), st.pending.end(),
+                            [pid](const PendingInject& p) { return p.pid == pid; });
             if (known) continue;
 
             PendingInject pj;
@@ -121,17 +157,36 @@ void ProcessPendingInjections(State& st)
     const ULONGLONG    now = GetTickCount64();
 
     for (auto it = st.pending.begin(); it != st.pending.end(); ) {
-        if (now < it->due)       { ++it; continue; }
-        if (!IsAlive(it->pid))   { it = st.pending.erase(it); continue; }
+        if (now < it->due)     { ++it; continue; }
+        if (!IsAlive(it->pid)) { it = st.pending.erase(it); continue; }
 
-        std::string err;
-        if (InjectDll(it->pid, dll, err)) {
-            Log(st, "已注入 %s（PID %lu）", it->exe.c_str(), it->pid);
-            st.injectedPids.push_back(it->pid);
-        } else {
-            Log(st, "注入 %s（PID %lu）失败：%s", it->exe.c_str(), it->pid, err.c_str());
-        }
+        const bool busy = std::find(st.injecting.begin(), st.injecting.end(), it->pid) != st.injecting.end();
+        if (busy) { ++it; continue; }
+
+        st.injecting.push_back(it->pid);
+        Log(st, "开始注入 %s（PID %lu）", it->exe.c_str(), it->pid);
+        RunInjectAsync(it->pid, dll, it->exe);
         it = st.pending.erase(it);
+    }
+}
+
+void CollectInjectResults(State& st)
+{
+    std::vector<InjectResult> done;
+    {
+        std::lock_guard<std::mutex> lk(g_resultMutex);
+        done.swap(g_results);
+    }
+
+    for (const auto& r : done) {
+        st.injecting.erase(std::remove(st.injecting.begin(), st.injecting.end(), r.pid),
+                           st.injecting.end());
+        if (r.ok) {
+            Log(st, "已注入 %s（PID %lu）", r.exe.c_str(), r.pid);
+            st.injectedPids.push_back(r.pid);
+        } else {
+            Log(st, "注入 %s（PID %lu）失败：%s", r.exe.c_str(), r.pid, r.err.c_str());
+        }
     }
 }
 

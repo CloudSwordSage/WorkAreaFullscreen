@@ -145,6 +145,8 @@ void DrawStatus(State& st)
     for (DWORD pid : st.injectedPids) ImGui::BulletText("PID %lu", pid);
     if (!st.pending.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "等待注入：%zu", st.pending.size());
+    if (!st.injecting.empty())
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "正在注入：%zu", st.injecting.size());
 
     ImGui::SeparatorText("日志");
     ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_Border,
