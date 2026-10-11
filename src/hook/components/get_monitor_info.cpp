@@ -36,19 +36,34 @@ RECT* FieldOf(LPMONITORINFO mi, int id)
     return (id == MF_MONITOR) ? &mi->rcMonitor : &mi->rcWork;
 }
 
+const char* FieldName(int id) { return (id == MF_MONITOR) ? "rcMonitor" : "rcWork"; }
+
+volatile LONG g_hitLeft  = 20;
+volatile LONG g_missLeft = 8;
+
 BOOL WINAPI Detour_GetMonitorInfoW(HMONITOR mon, LPMONITORINFO mi)
 {
     const BOOL r = o_GetMonitorInfoW(mon, mi);
     if (!r || !mi || mi->cbSize < sizeof(MONITORINFO)) return r;
 
     // 只在策略已知的调用点改写，其余（含本进程内部查询）原样放行。
-    if (g_callsiteScope &&
-        !HkFromKnownCallsite(g_env, "GetMonitorInfoW", _ReturnAddress())) return r;
+    void* ra = _ReturnAddress();
+    if (g_callsiteScope && !HkFromKnownCallsite(g_env, "GetMonitorInfoW", ra)) {
+        if (InterlockedDecrement(&g_missLeft) >= 0)
+            HkLog("GetMonitorInfoW(mon=%p) 调用点不在策略表中（rva=0x%llX），未改写",
+                  mon, (unsigned long long)((ULONG_PTR)ra - (ULONG_PTR)g_env.targetMod));
+        return r;
+    }
 
     for (const auto& f : g_fields) {
         RECT* dst = FieldOf(mi, f.first);
         RECT* src = FieldOf(mi, f.second);
-        if (dst != src) *dst = *src;
+        if (dst == src) continue;
+        if (InterlockedDecrement(&g_hitLeft) >= 0)
+            HkLog("GetMonitorInfoW(mon=%p) %s=(%ld,%ld)-(%ld,%ld) -> %s=(%ld,%ld)-(%ld,%ld)",
+                  mon, FieldName(f.first), dst->left, dst->top, dst->right, dst->bottom,
+                  FieldName(f.second), src->left, src->top, src->right, src->bottom);
+        *dst = *src;
     }
     return r;
 }

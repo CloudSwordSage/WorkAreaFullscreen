@@ -180,6 +180,11 @@ void CreateTray(State& st)
 void UpdateTrayTip(State& st)
 {
     const int active = (int)st.injectedPids.size();
+    // 只有内容真的变了才去通知 shell：Shell_NotifyIcon 是跨进程同步调用，
+    // explorer 正忙（例如截图工具在操作桌面）时它会阻塞，进而拖住整个界面线程。
+    if (active == st.trayShownCount) return;
+    st.trayShownCount = active;
+
     _snwprintf_s(st.nid.szTip, _TRUNCATE, L"WorkAreaFullscreen — 已注入 %d 个进程", active);
     st.nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     Shell_NotifyIconW(NIM_MODIFY, &st.nid);
@@ -450,7 +455,8 @@ int RunUi(const std::wstring& configPath)
         g_context->OMSetRenderTargets(1, &g_rtv, nullptr);
         g_context->ClearRenderTargetView(g_rtv, clear);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        g_swap->Present(1, 0);   // 垂直同步
+        const HRESULT present = g_swap->Present(1, 0);
+        if (present == DXGI_STATUS_OCCLUDED) Sleep(50);   // 被完全遮挡时不要空转
     }
 
     RemoveTray(st);

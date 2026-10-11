@@ -30,6 +30,13 @@ bool IndexId(const std::string& s, int* out)
     return false;
 }
 
+const char* IndexName(int idx) { return (idx == HORZRES) ? "HORZRES" : "VERTRES"; }
+
+// 诊断日志限次，避免每帧刷屏
+volatile LONG g_hitLeft  = 20;
+volatile LONG g_missLeft = 8;
+volatile LONG g_failLeft = 4;
+
 int WINAPI Detour_GetDeviceCaps(HDC hdc, int idx)
 {
     const int v = o_GetDeviceCaps(hdc, idx);
@@ -37,14 +44,30 @@ int WINAPI Detour_GetDeviceCaps(HDC hdc, int idx)
     if (idx != HORZRES && idx != VERTRES) return v;
     if ((idx == HORZRES && !g_horz) || (idx == VERTRES && !g_vert)) return v;
 
-    if (g_callsiteScope &&
-        !HkFromKnownCallsite(g_env, "GetDeviceCaps", _ReturnAddress())) return v;
+    if (g_callsiteScope) {
+        void* ra = _ReturnAddress();
+        if (!HkFromKnownCallsite(g_env, "GetDeviceCaps", ra)) {
+            if (InterlockedDecrement(&g_missLeft) >= 0)
+                HkLog("GetDeviceCaps(%s) 调用点不在策略表中（rva=0x%llX），未改写",
+                      IndexName(idx),
+                      (unsigned long long)((ULONG_PTR)ra - (ULONG_PTR)g_env.targetMod));
+            return v;
+        }
+    }
 
     // 无法定位 hdc 所属监视器时放行原值（fallback: passthrough）。
     RECT r;
-    if (!HkQueryGeometryRect(g_env, hdc, &r)) return v;
+    if (!HkQueryGeometryRect(g_env, hdc, &r)) {
+        if (InterlockedDecrement(&g_failLeft) >= 0)
+            HkLog("GetDeviceCaps(%s) 无法定位 hdc 所属显示器，未改写", IndexName(idx));
+        return v;
+    }
 
-    return (idx == HORZRES) ? (r.right - r.left) : (r.bottom - r.top);
+    const int nv = (idx == HORZRES) ? (r.right - r.left) : (r.bottom - r.top);
+    if (InterlockedDecrement(&g_hitLeft) >= 0)
+        HkLog("GetDeviceCaps(%s) hdc=%p %d -> %d（工作区 %ld,%ld-%ld,%ld）",
+              IndexName(idx), hdc, v, nv, r.left, r.top, r.right, r.bottom);
+    return nv;
 }
 
 bool Configure(const HookSetting& s, const HkEnv& env)

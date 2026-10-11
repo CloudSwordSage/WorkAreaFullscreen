@@ -31,6 +31,7 @@ $lines  = $raw -split "`r?`n"
 $before = ($lines | Where-Object { $_ -match 'before MONITOR' }) -join ' '
 $after  = ($lines | Where-Object { $_ -match 'after MONITOR' }) -join ' '
 $caps   = ($lines | Where-Object { $_ -match 'after CAPS' }) -join ' '
+$window = ($lines | Where-Object { $_ -match 'after WINDOW' }) -join ' '
 
 if (-not $before -or -not $after) {
     Write-Host $raw
@@ -65,4 +66,15 @@ if ([int]$Matches[1] -ne $expW -or [int]$Matches[2] -ne $expH) {
     throw "断言失败: GetDeviceCaps=$($Matches[1])x$($Matches[2]) != 工作区 ${expW}x${expH}"
 }
 
-Write-Host 'integration self-check: OK  (rcMonitor -> rcWork; GetDeviceCaps -> work area size)' -ForegroundColor Green
+# SDL 居中模拟：尺寸取 desktop_mode，bounds 取 rcMonitor，结果必须落回 rcWork
+if ($window -notmatch 'pos=\((-?\d+),(-?\d+)\) size=\((\d+)x(\d+)\)') {
+    throw "未捕获到 after WINDOW"
+}
+$winPos  = "$($Matches[1]),$($Matches[2])"
+$winSize = "$($Matches[3])x$($Matches[4])"
+$expPos  = "$($workRect[0]),$($workRect[1])"
+if ($winSize -ne "${expW}x${expH}" -or $winPos -ne $expPos) {
+    throw "断言失败: SDL 居中结果 pos=($winPos) size=($winSize) != 工作区 pos=($expPos) size=(${expW}x${expH})"
+}
+
+Write-Host 'integration self-check: OK  (rcMonitor -> rcWork; caps -> work area; SDL 居中 -> work area)' -ForegroundColor Green

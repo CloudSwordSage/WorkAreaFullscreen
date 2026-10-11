@@ -54,6 +54,7 @@ struct State {
     bool            showWindow  = true;      ///< 主窗口是否可见（false = 收在托盘）
     bool            requestExit = false;
     NOTIFYICONDATAW nid{};
+    int             trayShownCount = -1;     ///< 托盘提示里已显示的注入数，避免无谓地调用 shell
 };
 
 /** 宽字符串转 UTF-8（界面与日志显示用）。 */
