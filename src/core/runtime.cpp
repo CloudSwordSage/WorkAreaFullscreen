@@ -1,10 +1,11 @@
 // runtime.cpp - 日志、策略调用点表、调用点判定与几何查询。
-#include "hookkit/runtime.h"
+#include "waf/runtime.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
+namespace waf {
 namespace {
 
 // ---------------- 日志 ----------------
@@ -84,7 +85,7 @@ void HkLogOpen()
     char  path[MAX_PATH] = { 0 };
     DWORD n              = GetTempPathA(MAX_PATH, path);
     if (n == 0 || n > MAX_PATH - 12) lstrcpyA(path, "C:\\Windows\\Temp\\");
-    lstrcatA(path, "hookkit.log");
+    lstrcatA(path, "WorkAreaFullscreen.log");
 
     g_log = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
                         NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -175,3 +176,5 @@ bool HkQueryGeometryRect(const HkEnv& env, HDC hdc, RECT* out)
 {
     return RectOfMonitor(MonitorOfDC(hdc), env.geometry, out);
 }
+
+} // namespace waf

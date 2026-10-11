@@ -10,8 +10,10 @@
 
 #include <vector>
 
-#include "hookkit/runtime.h"
-#include "hookkit/yamlmini.h"
+#include "waf/config.h"
+#include "waf/runtime.h"
+
+namespace waf {
 
 /**
  * 一个 hook 组件：按配置改写某个系统 API 的返回值。
@@ -28,11 +30,11 @@ struct HkComponent {
     /**
      * 解析自身配置块。
      *
-     * @param cfg 组件在 `hooks:` 下的配置节点。
-     * @param env 运行环境（策略、几何）。
-     * @return    false 表示该组件不应安装（宿主按 fallback 放行）。
+     * @param setting 该组件在 `hooks:` 下的配置（含 enabled/scope 与组件参数）。
+     * @param env     运行环境（策略、几何）。
+     * @return        false 表示该组件不应安装（宿主按 fallback 放行）。
      */
-    bool (*configure)(const yamlmini::Node& cfg, const HkEnv& env);
+    bool (*configure)(const HookSetting& setting, const HkEnv& env);
 
     /**
      * 安装前的调用点校验；仅在 safety.verify_callsite 为真时被调用。
@@ -53,7 +55,9 @@ inline std::vector<const HkComponent*>& HkRegistry()
 #define HK_REGISTER_COMPONENT(var)                                             \
     namespace {                                                                \
     struct var##_registrar {                                                   \
-        var##_registrar() { HkRegistry().push_back(&var); }                    \
+        var##_registrar() { ::waf::HkRegistry().push_back(&var); }             \
     };                                                                         \
     const var##_registrar var##_registrar_instance;                            \
     }
+
+} // namespace waf

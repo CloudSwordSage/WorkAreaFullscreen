@@ -9,8 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "hookkit/component.h"
+#include "waf/component.h"
 
+namespace waf {
 namespace {
 
 typedef int(WINAPI* PFN_GetDeviceCaps)(HDC, int);
@@ -46,16 +47,14 @@ int WINAPI Detour_GetDeviceCaps(HDC hdc, int idx)
     return (idx == HORZRES) ? (r.right - r.left) : (r.bottom - r.top);
 }
 
-bool Configure(const yamlmini::Node& cfg, const HkEnv& env)
+bool Configure(const HookSetting& s, const HkEnv& env)
 {
     g_env = env;
 
-    g_callsiteScope = true;
-    if (const yamlmini::Node* scope = cfg.find("scope"))
-        g_callsiteScope = (scope->str("callsite") == "callsite");
+    g_callsiteScope = (s.scope != "global");
 
     g_horz = g_vert = false;
-    if (const yamlmini::Node* indices = cfg.find("indices")) {
+    if (const yamlmini::Node* indices = s.params.find("indices")) {
         if (indices->kind == yamlmini::Node::Seq) {
             for (const auto& it : indices->seq) {
                 int id = 0;
@@ -107,3 +106,5 @@ HkComponent g_component = {
 } // namespace
 
 HK_REGISTER_COMPONENT(g_component);
+
+} // namespace waf

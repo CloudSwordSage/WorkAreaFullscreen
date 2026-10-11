@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
-/** 打开 %TEMP%\hookkit.log（覆盖写）；DLL 初始化早期调用一次。 */
+namespace waf {
+
+/** 打开 %TEMP%\WorkAreaFullscreen.log（覆盖写）；DLL 初始化早期调用一次。 */
 void HkLogOpen();
 
 /** 追加一条带时间戳与线程号的日志；未打开日志时为空操作。 */
@@ -63,3 +65,5 @@ bool HkQueryGeometryRect(const HkEnv& env, HMONITOR mon, RECT* out);
  * 内部会调用 GetMonitorInfoW，因此被 hook 时经由 detour 走 passthrough 分支，结果不变。
  */
 bool HkQueryGeometryRect(const HkEnv& env, HDC hdc, RECT* out);
+
+} // namespace waf

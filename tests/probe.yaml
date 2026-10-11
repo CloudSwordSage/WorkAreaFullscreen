@@ -1,31 +1,31 @@
-# 集成自检配置：目标为 probe_host.exe。
+# 集成自检配置（tests/run_integration.ps1 使用）。
 #
-# 与生产配置的差别只有两处，都是为了在非目标 exe 上验证改写逻辑本身：
-#   scope: global          —— probe_host 的调用点不在 sdl2-gdi 策略表里
-#   verify_callsite: false —— probe_host 不是 stellaris.exe，跳过按 RVA 的字节校验
+# 与生产配置只有两处差别，都是为了在非目标 exe 上验证改写逻辑本身：
+#   scope: global           —— probe_host 的调用点不在 sdl2-gdi 策略表里
+#   verify_callsite: false  —— probe_host 不是 stellaris.exe，无法按 RVA 校验
 enabled: true
+inject_delay_ms: 400
+scan_interval_ms: 1000
+
+ui:
+  minimize_to_tray: true
 
 targets:
   - executable: probe_host.exe
     enabled: true
-
     strategy: sdl2-gdi
     geometry: work_area
-
     hooks:
+      GetMonitorInfoW:
+        enabled: true
+        fields:
+          rcMonitor: rcWork
+        scope: global
       GetDeviceCaps:
         enabled: true
         indices:
           - HORZRES
           - VERTRES
         scope: global
-
-      GetMonitorInfoW:
-        enabled: true
-        fields:
-          rcMonitor: rcWork
-        scope: global
-
     safety:
-      fallback: passthrough
       verify_callsite: false

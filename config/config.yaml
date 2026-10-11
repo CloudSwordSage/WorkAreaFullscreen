@@ -1,0 +1,33 @@
+# WorkAreaFullscreen 配置
+# 由界面保存时重写；手工编辑后程序会自动热重载。
+#
+# inject_delay_ms   发现目标进程后延迟注入的毫秒数（立即注入会让部分引擎崩溃）
+# scan_interval_ms  目标进程扫描间隔
+# geometry          work_area = 窗口铺满工作区（保留任务栏）；monitor = 显示器整块区域
+
+enabled: true
+inject_delay_ms: 400
+scan_interval_ms: 1000
+
+ui:
+  minimize_to_tray: true
+
+targets:
+  - executable: stellaris.exe
+    enabled: true
+    strategy: sdl2-gdi
+    geometry: work_area
+    hooks:
+      GetMonitorInfoW:
+        enabled: true
+        fields:
+          rcMonitor: rcWork
+        scope: callsite
+      GetDeviceCaps:
+        enabled: true
+        indices:
+          - HORZRES
+          - VERTRES
+        scope: callsite
+    safety:
+      verify_callsite: true

@@ -1,5 +1,5 @@
 // yamlmini.cpp - 最小 YAML 子集解析器实现，见 yamlmini.h。
-#include "hookkit/yamlmini.h"
+#include "waf/yamlmini.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -158,7 +158,91 @@ private:
     }
 };
 
+// ---- 序列化 ----
+
+bool NeedsQuote(const std::string& s)
+{
+    if (s.empty()) return true;
+    if (s.front() == ' ' || s.back() == ' ') return true;
+    if (s.front() == '-' || s.front() == '#' || s.front() == ':' || s.front() == '[' || s.front() == '{')
+        return true;
+    for (char c : s) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (isalnum(u)) continue;
+        if (c == '.' || c == '_' || c == '-' || c == '/' || c == '\\' || c == ' ') continue;
+        return true;   // ':' 会歧义成键分隔符，'#' 会歧义成注释
+    }
+    // 与布尔/空字面量同形时也加引号，避免读回时被 toBool/toInt 当成别的类型。
+    return s == "true" || s == "false" || s == "yes" || s == "no" ||
+           s == "on" || s == "off" || s == "null" || s == "~";
+}
+
+std::string ScalarText(const std::string& s)
+{
+    return NeedsQuote(s) ? ("\"" + s + "\"") : s;
+}
+
+bool EmptyNode(const Node& n)
+{
+    if (n.kind == Node::Map) return n.map.empty();
+    if (n.kind == Node::Seq) return n.seq.empty();
+    return true;
+}
+
+void DumpNode(const Node& n, int indent, std::string& out);
+
+void DumpEntry(const std::string& key, const Node& v, int indent, const char* prefix, std::string& out)
+{
+    out += std::string(static_cast<size_t>(indent), ' ') + prefix + key + ":";
+    if (v.kind == Node::Scalar) {
+        out += " " + ScalarText(v.scalar) + "\n";
+    } else if (!EmptyNode(v)) {
+        out += "\n";
+        DumpNode(v, indent + 2, out);
+    } else {
+        // 空容器显式写出，避免读回时变成 Null。
+        out += (v.kind == Node::Seq) ? " []\n" : " {}\n";
+    }
+}
+
+void DumpNode(const Node& n, int indent, std::string& out)
+{
+    if (n.kind == Node::Map) {
+        for (const auto& kv : n.map) DumpEntry(kv.first, kv.second, indent, "", out);
+        return;
+    }
+
+    if (n.kind == Node::Seq) {
+        const std::string pad(static_cast<size_t>(indent), ' ');
+        for (const auto& item : n.seq) {
+            if (item.kind == Node::Map && !item.map.empty()) {
+                // 首项并入 "- "，后续键与项内容对齐（"- " 占 2 列）。
+                DumpEntry(item.map[0].first, item.map[0].second, indent, "- ", out);
+                for (size_t i = 1; i < item.map.size(); ++i)
+                    DumpEntry(item.map[i].first, item.map[i].second, indent + 2, "", out);
+            } else if (item.kind == Node::Seq && !item.seq.empty()) {
+                out += pad + "-\n";
+                DumpNode(item, indent + 2, out);
+            } else if (item.kind == Node::Map) {
+                out += pad + "- {}\n";
+            } else {
+                out += pad + "- " + ScalarText(item.scalar) + "\n";
+            }
+        }
+        return;
+    }
+
+    out += std::string(static_cast<size_t>(indent), ' ') + ScalarText(n.scalar) + "\n";
+}
+
 } // namespace
+
+std::string Dump(const Node& node, int indent)
+{
+    std::string out;
+    DumpNode(node, indent, out);
+    return out;
+}
 
 const Node* Node::find(const std::string& key) const
 {

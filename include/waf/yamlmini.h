@@ -47,4 +47,16 @@ struct Node {
  */
 bool Parse(const std::string& text, Node& out, std::string& err);
 
+/**
+ * 序列化节点为 YAML 文本，每层缩进 2 空格。
+ *
+ * 与 Parse() 构成往返：Dump(Parse(x)) 可再次被 Parse() 读回。
+ * 需要引号保护的标量（空串、含特殊字符、与布尔/数字字面量同形）会用双引号包裹。
+ *
+ * @param node   待序列化节点；Scalar 作为根时输出裸标量行。
+ * @param indent 根节点的起始缩进宽度。
+ * @return YAML 文本，含结尾换行。
+ */
+std::string Dump(const Node& node, int indent = 0);
+
 } // namespace yamlmini

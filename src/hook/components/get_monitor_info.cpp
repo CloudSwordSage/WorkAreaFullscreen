@@ -9,8 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "hookkit/component.h"
+#include "waf/component.h"
 
+namespace waf {
 namespace {
 
 typedef BOOL(WINAPI* PFN_GetMonitorInfoW)(HMONITOR, LPMONITORINFO);
@@ -52,16 +53,14 @@ BOOL WINAPI Detour_GetMonitorInfoW(HMONITOR mon, LPMONITORINFO mi)
     return r;
 }
 
-bool Configure(const yamlmini::Node& cfg, const HkEnv& env)
+bool Configure(const HookSetting& s, const HkEnv& env)
 {
     g_env = env;
 
-    g_callsiteScope = true;
-    if (const yamlmini::Node* scope = cfg.find("scope"))
-        g_callsiteScope = (scope->str("callsite") == "callsite");
+    g_callsiteScope = (s.scope != "global");
 
     g_fields.clear();
-    if (const yamlmini::Node* fields = cfg.find("fields")) {
+    if (const yamlmini::Node* fields = s.params.find("fields")) {
         if (fields->kind == yamlmini::Node::Map) {
             for (const auto& kv : fields->map) {
                 int dst = 0, src = 0;
@@ -115,3 +114,5 @@ HkComponent g_component = {
 } // namespace
 
 HK_REGISTER_COMPONENT(g_component);
+
+} // namespace waf
