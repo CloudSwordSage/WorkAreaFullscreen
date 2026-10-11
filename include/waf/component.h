@@ -28,6 +28,14 @@ struct HkComponent {
     void**         trampoline;  ///< 接收 MinHook 填回的原函数指针
 
     /**
+     * 界面把本组件新加到某条规则时使用的默认配置（YAML 片段，可为 nullptr）。
+     *
+     * 由 injector.dll 通过 HkComponentDefaultConfig 提供给宿主，界面因此不必硬编码
+     * 任何组件的参数；新增组件时也只需在这里写一份默认值。
+     */
+    const char*    defaultConfig;
+
+    /**
      * 解析自身配置块。
      *
      * @param setting 该组件在 `hooks:` 下的配置（含 enabled/scope 与组件参数）。

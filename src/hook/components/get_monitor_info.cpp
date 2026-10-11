@@ -122,6 +122,8 @@ HkComponent g_component = {
     "GetMonitorInfoW",
     reinterpret_cast<void*>(Detour_GetMonitorInfoW),
     reinterpret_cast<void**>(&o_GetMonitorInfoW),
+    "fields:\n"
+    "  rcMonitor: rcWork\n",
     Configure,
     Verify,
 };

@@ -161,13 +161,13 @@ hook 日志里会记录注入时目标已运行了多少毫秒，便于判断是
 ## 扩展一个 hook 组件
 
 1. 在 `src/hook/components/` 新建 `.cpp`，定义 detour 与 `configure` / `verify`；
-2. 定义静态 `waf::HkComponent` 实例；
+2. 定义静态 `waf::HkComponent` 实例，`defaultConfig` 写该组件被新加入规则时的默认参数；
 3. 用 `HK_REGISTER_COMPONENT` 注册；
 4. 在 `CMakeLists.txt` 的 `injector` 目标里加上该源文件。
 
-宿主遍历注册表读配置，不需要改动。若目标版本有新发现的调用点，把 RVA 加进
-`src/core/runtime.cpp` 的 `Strategies()` 表即可，`verify_callsite` 会自动复核。
-参考 `src/hook/components/get_monitor_info.cpp`：约 100 行含全部接线。
+宿主遍历注册表读配置，不需要改动。界面里的「新增组件」列表来自 `injector.dll` 导出的组件目录
+（`HkComponentCount` / `HkComponentName` / `HkComponentDefaultConfig`），因此界面不硬编码任何
+组件知识 —— 新组件写好 `defaultConfig` 后会自动出现在列表里。
 
 UI 里「添加规则」按下时使用 `waf::NewDefaultRule()` 的模板（当前含两个组件的默认参数）。
 

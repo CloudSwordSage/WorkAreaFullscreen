@@ -250,7 +250,48 @@ LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+// 组件目录只存在于 injector.dll 的注册表里，这里通过它的导出接口取一次。
+std::vector<ComponentInfo> g_catalog;
+
+void LoadComponentCatalog()
+{
+    static bool loaded = false;
+    if (loaded) return;
+    loaded = true;
+
+    const std::wstring path = SelfDir() + L"\\injector.dll";
+    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+
+    // 让 DLL 知道这次加载只为读目录：绝不能在宿主进程里初始化 hook。
+    SetEnvironmentVariableW(L"HOOKKIT_QUERY", L"1");
+    HMODULE mod = LoadLibraryW(path.c_str());
+    SetEnvironmentVariableW(L"HOOKKIT_QUERY", nullptr);
+    if (!mod) return;
+
+    typedef int(__stdcall * FnCount)(void);
+    typedef const char*(__stdcall * FnName)(int);
+    typedef const char*(__stdcall * FnConfig)(int);
+
+    const auto count  = reinterpret_cast<FnCount>(GetProcAddress(mod, "HkComponentCount"));
+    const auto nameOf = reinterpret_cast<FnName>(GetProcAddress(mod, "HkComponentName"));
+    const auto cfgOf  = reinterpret_cast<FnConfig>(GetProcAddress(mod, "HkComponentDefaultConfig"));
+    if (!count || !nameOf || !cfgOf) return;
+
+    const int n = count();
+    for (int i = 0; i < n; ++i) {
+        const char* nm = nameOf(i);
+        const char* cf = cfgOf(i);
+        if (nm) g_catalog.push_back(ComponentInfo{ nm, cf ? cf : "" });
+    }
+}
+
 } // namespace
+
+const std::vector<ComponentInfo>& AvailableComponents()
+{
+    LoadComponentCatalog();
+    return g_catalog;
+}
 
 void HideMainWindow(State& st)
 {

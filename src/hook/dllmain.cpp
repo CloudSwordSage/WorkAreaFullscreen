@@ -226,9 +226,39 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
+
+        // 宿主进程也会加载本 DLL，但只是为了读组件目录（见下面的 HkComponent* 导出）。
+        // 那种加载绝不能在这里装 hook。
+        wchar_t flag[8] = { 0 };
+        if (GetEnvironmentVariableW(L"HOOKKIT_QUERY", flag, ARRAYSIZE(flag)) > 0) return TRUE;
+
         // 注入发生在目标运行中，初始化放到独立线程，避免在 DllMain 内触发加载器锁问题。
         HANDLE t = CreateThread(nullptr, 0, waf::InitThread, hModule, 0, nullptr);
         if (t) CloseHandle(t);
     }
     return TRUE;
+}
+
+// ---- 组件目录导出 ----
+// 宿主界面据此列出“可添加的组件”及其默认参数，避免界面硬编码组件知识；
+// 新增组件时只要写好 defaultConfig，界面自动就能列出。
+
+extern "C" __declspec(dllexport) int HkComponentCount(void)
+{
+    return static_cast<int>(waf::HkRegistry().size());
+}
+
+extern "C" __declspec(dllexport) const char* HkComponentName(int index)
+{
+    const auto& reg = waf::HkRegistry();
+    if (index < 0 || index >= static_cast<int>(reg.size())) return nullptr;
+    return reg[static_cast<size_t>(index)]->name;
+}
+
+extern "C" __declspec(dllexport) const char* HkComponentDefaultConfig(int index)
+{
+    const auto& reg = waf::HkRegistry();
+    if (index < 0 || index >= static_cast<int>(reg.size())) return nullptr;
+    const char* cfg = reg[static_cast<size_t>(index)]->defaultConfig;
+    return cfg ? cfg : "";
 }

@@ -82,6 +82,20 @@ inline std::wstring SelfDir()
     return DirOf(self);
 }
 
+/** 一个可供界面添加的 hook 组件（来自 injector.dll 的导出目录）。 */
+struct ComponentInfo {
+    std::string name;
+    std::string defaultConfigYaml;   ///< 描述该组件默认参数的 YAML 片段，可为空
+};
+
+/**
+ * 可添加的组件目录。
+ *
+ * 首次调用时从 injector.dll 的导出读取；DLL 缺失或导出不可用时返回空表，
+ * 此时界面仍能编辑配置里已有的组件，只是无法“新增组件”。
+ */
+const std::vector<ComponentInfo>& AvailableComponents();
+
 /** 打开 %TEMP%\WorkAreaFullscreen.log（覆盖写）；重复调用为空操作。 */
 void OpenLogFile();
 

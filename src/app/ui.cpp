@@ -27,6 +27,29 @@ bool InputString(const char* label, std::string& s)
                             ImGuiInputTextFlags_CallbackResize, StrResizeCallback, &s);
 }
 
+// 用组件目录里的默认配置构造一条 HookSetting：YAML 里的 scope 提到结构字段，其余进 params。
+HookSetting MakeHookFromCatalog(const ComponentInfo& c)
+{
+    HookSetting hs;
+    hs.name = c.name;
+
+    yamlmini::Node root;
+    std::string    err;
+    if (!c.defaultConfigYaml.empty() &&
+        yamlmini::Parse(c.defaultConfigYaml, root, err) &&
+        root.kind == yamlmini::Node::Map) {
+        for (const auto& kv : root.map) {
+            if (kv.first == "scope") {
+                hs.scope = kv.second.str("callsite");
+                continue;
+            }
+            hs.params.map.push_back(kv);
+        }
+    }
+    hs.params.kind = yamlmini::Node::Map;
+    return hs;
+}
+
 void DrawGlobal(State& st)
 {
     AppConfig& cfg = st.config;
@@ -105,12 +128,14 @@ void DrawTargets(State& st)
             ImGui::SetTooltip("注入前按 RVA 校验指令字节与 IAT 槽；\n版本不匹配时回退为不改写。");
 
         ImGui::SeparatorText("hook 组件");
+
+        int removeHook = -1;
         for (size_t h = 0; h < t.hooks.size(); ++h) {
             HookSetting& hs = t.hooks[h];
             ImGui::PushID(static_cast<int>(h));
             dirty |= ImGui::Checkbox(hs.name.c_str(), &hs.enabled);
             ImGui::SameLine(220);
-            ImGui::SetNextItemWidth(140);
+            ImGui::SetNextItemWidth(120);
             int scope = (hs.scope == "global") ? 1 : 0;
             if (ImGui::Combo("##scope", &scope, "callsite\0global\0")) {
                 hs.scope = scope ? "global" : "callsite";
@@ -119,10 +144,37 @@ void DrawTargets(State& st)
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("callsite：只对策略表记录的调用点生效\n"
                                   "global：对该 API 的所有调用生效");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("移除")) removeHook = static_cast<int>(h);
             ImGui::PopID();
         }
+        if (removeHook >= 0) {
+            t.hooks.erase(t.hooks.begin() + removeHook);
+            dirty = true;
+        }
+
         if (t.hooks.empty())
             ImGui::TextDisabled("该规则没有 hook 组件，不会改写任何东西");
+
+        // 可添加的组件来自 injector.dll 的导出目录，界面不硬编码组件知识
+        if (ImGui::Button("新增组件")) ImGui::OpenPopup("##addhook");
+        if (ImGui::BeginPopup("##addhook")) {
+            bool anyAvailable = false;
+            for (const auto& c : AvailableComponents()) {
+                bool already = false;
+                for (const auto& h : t.hooks)
+                    if (h.name == c.name) { already = true; break; }
+                if (already) continue;
+
+                anyAvailable = true;
+                if (ImGui::Selectable(c.name.c_str())) {
+                    t.hooks.push_back(MakeHookFromCatalog(c));
+                    dirty = true;
+                }
+            }
+            if (!anyAvailable) ImGui::TextDisabled("没有可添加的组件");
+            ImGui::EndPopup();
+        }
 
         if (ImGui::SmallButton("删除此规则")) removeAt = static_cast<int>(i);
         if (dirty) st.configDirty = true;

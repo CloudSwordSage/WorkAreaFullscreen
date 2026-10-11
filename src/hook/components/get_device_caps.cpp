@@ -122,6 +122,9 @@ HkComponent g_component = {
     "GetDeviceCaps",
     reinterpret_cast<void*>(Detour_GetDeviceCaps),
     reinterpret_cast<void**>(&o_GetDeviceCaps),
+    "indices:\n"
+    "  - HORZRES\n"
+    "  - VERTRES\n",
     Configure,
     Verify,
 };
