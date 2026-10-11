@@ -177,4 +177,31 @@ bool HkQueryGeometryRect(const HkEnv& env, HDC hdc, RECT* out)
     return RectOfMonitor(MonitorOfDC(hdc), env.geometry, out);
 }
 
+HMONITOR HkMonitorOfDevice(const std::wstring& deviceName)
+{
+    char narrow[64] = { 0 };
+    WideCharToMultiByte(CP_ACP, 0, deviceName.c_str(), -1, narrow, sizeof(narrow), nullptr, nullptr);
+
+    struct Ctx {
+        const char* name;
+        HMONITOR    found;
+    };
+    Ctx ctx{ narrow, nullptr };
+
+    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR mon, HDC, LPRECT, LPARAM lp) -> BOOL {
+        Ctx* c = reinterpret_cast<Ctx*>(lp);
+        // 用 A 变体：GetMonitorInfoW 可能已被本框架改写（szDevice 不受影响，但保持读取路径干净）
+        MONITORINFOEXA mi{};
+        mi.cbSize = sizeof(mi);
+        if (GetMonitorInfoA(mon, reinterpret_cast<LPMONITORINFO>(&mi)) &&
+            _stricmp(mi.szDevice, c->name) == 0) {
+            c->found = mon;
+            return FALSE;
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&ctx));
+
+    return ctx.found;
+}
+
 } // namespace waf

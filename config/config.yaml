@@ -29,5 +29,8 @@ targets:
           - HORZRES
           - VERTRES
         scope: callsite
+      EnumDisplaySettingsW:
+        enabled: true
+        scope: global
     safety:
       verify_callsite: true

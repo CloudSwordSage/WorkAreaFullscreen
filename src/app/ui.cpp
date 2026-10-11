@@ -39,12 +39,12 @@ void DrawGlobal(State& st)
     ImGui::SetNextItemWidth(150);
     dirty |= ImGui::InputInt("注入延迟 (ms)", &cfg.injectDelayMs);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("发现目标进程后等待多久再注入。\n立即注入会让部分引擎在初始化期崩溃，故默认 400 ms。");
+        ImGui::SetTooltip("目标进程“启动后”多少毫秒注入。\n必须在目标完成显示初始化之前，否则改不到窗口尺寸。\n立即注入会让部分引擎崩溃，故不要设得过小。");
 
     ImGui::SetNextItemWidth(150);
     dirty |= ImGui::InputInt("扫描间隔 (ms)", &cfg.scanIntervalMs);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("轮询进程列表的间隔。");
+        ImGui::SetTooltip("轮询进程列表的间隔。\n越小越能赶在目标初始化完成前发现它；\n设得太大会错过注入时机。");
 
     if (cfg.injectDelayMs < 0)    { cfg.injectDelayMs = 0;   dirty = true; }
     if (cfg.scanIntervalMs < 100) { cfg.scanIntervalMs = 100; dirty = true; }

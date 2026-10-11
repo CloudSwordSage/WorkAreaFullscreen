@@ -78,13 +78,67 @@ std::string NarrowA(const std::wstring& w)
     return s;
 }
 
+/** 目标进程已运行的时间（毫秒）。注入时机是否够早，看这一个数。 */
+ULONGLONG TargetUptimeMs()
+{
+    FILETIME create{}, exitTime{}, kernel{}, user{};
+    if (!GetProcessTimes(GetCurrentProcess(), &create, &exitTime, &kernel, &user)) return 0;
+
+    FILETIME now{};
+    GetSystemTimeAsFileTime(&now);
+
+    ULARGE_INTEGER c, n;
+    c.LowPart  = create.dwLowDateTime;
+    c.HighPart = create.dwHighDateTime;
+    n.LowPart  = now.dwLowDateTime;
+    n.HighPart = now.dwHighDateTime;
+    return (n.QuadPart > c.QuadPart) ? (n.QuadPart - c.QuadPart) / 10000ull : 0;
+}
+
+/** 让 SDL 重建显示器缓存。
+ *
+ * SDL 只在视频初始化（WIN_InitModes）或收到 WM_DISPLAYCHANGE 时才枚举显示器，并把
+ * GetDeviceCaps(HORZRES/VERTRES) 的结果缓存进 display.desktop_mode。注入通常晚于视频初始化，
+ * 缓存里已经是整屏尺寸；这里主动触发一次重新枚举，让缓存按（被 hook 改写的）工作区尺寸重建。
+ *
+ * 必须等目标出现 SDL 窗口再发：刷新依赖窗口过程 WIN_WindowProc 处理该消息。
+ */
+DWORD WINAPI RefreshDisplaysThread(LPVOID)
+{
+    for (int i = 0; i < 2400; ++i) {   // 最多等 120 秒（50ms x 2400）
+        HWND sdl = nullptr;
+        EnumWindows([](HWND hwnd, LPARAM lp) -> BOOL {
+            wchar_t cls[64] = { 0 };
+            if (GetClassNameW(hwnd, cls, ARRAYSIZE(cls)) && wcscmp(cls, L"SDL_app") == 0) {
+                *reinterpret_cast<HWND*>(lp) = hwnd;
+                return FALSE;
+            }
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&sdl));
+
+        if (sdl) {
+            DWORD_PTR unused = 0;
+            // ABORTIFHUNG：目标消息泵若卡住，不要把这个线程也一起拖住
+            if (SendMessageTimeoutW(sdl, WM_DISPLAYCHANGE, 0, 0, SMTO_ABORTIFHUNG, 5000, &unused)) {
+                HkLog("已向 SDL 窗口 %p 发送 WM_DISPLAYCHANGE，触发显示器重新枚举", sdl);
+            } else {
+                HkLog("WM_DISPLAYCHANGE 发送失败（err=%lu）", GetLastError());
+            }
+            return 0;
+        }
+        Sleep(50);
+    }
+    HkLog("等待超时：未发现 SDL 窗口，未触发显示器重新枚举");
+    return 0;
+}
+
 DWORD WINAPI InitThread(LPVOID param)
 {
     HkLogOpen();
 
     const std::wstring exeName = CurrentExeName();
     const std::wstring cfgPath = FindConfig(static_cast<HMODULE>(param));
-    HkLog("target process: %s", NarrowA(exeName).c_str());
+    HkLog("target process: %s（已运行 %llu ms）", NarrowA(exeName).c_str(), TargetUptimeMs());
     HkLog("config: %s", NarrowA(cfgPath).c_str());
 
     std::string text;
@@ -156,6 +210,12 @@ DWORD WINAPI InitThread(LPVOID param)
 
     if (installed > 0) HkLog("MH_EnableHook -> %d", (int)MH_EnableHook(MH_ALL_HOOKS));
     HkLog("=== %d component(s) active ===", installed);
+
+    // 装了 hook 才值得刷新缓存：刷新时 GetDeviceCaps 必须已经被接住。
+    if (installed > 0 && env.strategy == "sdl2-gdi") {
+        HANDLE t = CreateThread(nullptr, 0, RefreshDisplaysThread, nullptr, 0, nullptr);
+        if (t) CloseHandle(t);
+    }
     return 0;
 }
 

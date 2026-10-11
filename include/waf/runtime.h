@@ -59,6 +59,14 @@ bool HkVerifyCallsite(const HkEnv& env, ULONG_PTR rva, const wchar_t* dll, const
 bool HkQueryGeometryRect(const HkEnv& env, HMONITOR mon, RECT* out);
 
 /**
+ * 按 `\\.\DISPLAYn` 设备名查找监视器。
+ *
+ * 内部用 GetMonitorInfoA 读取，不受本框架对 GetMonitorInfoW 的改写影响。
+ * @return 未找到返回 nullptr。
+ */
+HMONITOR HkMonitorOfDevice(const std::wstring& deviceName);
+
+/**
  * 按几何语义求指定显示器 DC 所属监视器的目标矩形。
  *
  * 经 GetDCOrgEx + MonitorFromPoint 定位监视器，失败时退回主显示器。

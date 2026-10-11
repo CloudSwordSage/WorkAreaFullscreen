@@ -47,6 +47,36 @@ bool IsAlive(DWORD pid)
     return alive;
 }
 
+/** 当前时刻的 FILETIME 毫秒值（与 GetProcessTimes 的创建时间同基准）。 */
+ULONGLONG NowFileTimeMs()
+{
+    FILETIME ft{};
+    GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER u;
+    u.LowPart  = ft.dwLowDateTime;
+    u.HighPart = ft.dwHighDateTime;
+    return u.QuadPart / 10000ull;
+}
+
+/** 进程创建时刻换算成 FILETIME 毫秒；取不到返回 false。 */
+bool ProcessStartFileTimeMs(DWORD pid, ULONGLONG& out)
+{
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h) h = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+    if (!h) return false;
+
+    FILETIME create{}, exitTime{}, kernel{}, user{};
+    const BOOL ok = GetProcessTimes(h, &create, &exitTime, &kernel, &user);
+    CloseHandle(h);
+    if (!ok) return false;
+
+    ULARGE_INTEGER u;
+    u.LowPart  = create.dwLowDateTime;
+    u.HighPart = create.dwHighDateTime;
+    out = u.QuadPart / 10000ull;
+    return true;
+}
+
 bool InjectDll(DWORD pid, const std::wstring& dllPath, std::string& err)
 {
     const DWORD access = PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
@@ -138,13 +168,32 @@ void WatchStep(State& st)
                             [pid](const PendingInject& p) { return p.pid == pid; });
             if (known) continue;
 
+            // 延迟以“目标进程启动时刻”为基准，而不是“发现的时刻”：
+            // 目标往往在 SDL 初始化时就缓存了显示信息，晚注入就再也改不到窗口尺寸了。
+            const ULONGLONG nowTick = GetTickCount64();
+            ULONGLONG       elapsed = 0;
+            const bool      haveStart = ProcessStartFileTimeMs(pid, elapsed);
+            if (haveStart) {
+                const ULONGLONG nowFt = NowFileTimeMs();
+                elapsed = (nowFt > elapsed) ? (nowFt - elapsed) : 0;
+            }
+
+            LONGLONG remain = static_cast<LONGLONG>(st.config.injectDelayMs) -
+                              static_cast<LONGLONG>(haveStart ? elapsed : 0);
+            if (remain < 0) remain = 0;
+
             PendingInject pj;
             pj.pid = pid;
             pj.exe = t.executable;
-            pj.due = GetTickCount64() + static_cast<ULONGLONG>(st.config.injectDelayMs);
+            pj.due = nowTick + static_cast<ULONGLONG>(remain);
             st.pending.push_back(pj);
-            Log(st, "发现 %s（PID %lu），%d ms 后注入",
-                t.executable.c_str(), pid, st.config.injectDelayMs);
+
+            if (haveStart)
+                Log(st, "发现 %s（PID %lu，已运行 %llu ms），将在其启动后 %d ms 注入",
+                    t.executable.c_str(), pid, elapsed, st.config.injectDelayMs);
+            else
+                Log(st, "发现 %s（PID %lu），%d ms 后注入",
+                    t.executable.c_str(), pid, st.config.injectDelayMs);
         }
     }
 }

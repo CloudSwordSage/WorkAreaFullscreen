@@ -11,11 +11,21 @@ Dock 等系统占用的空间，同时保持无边框（可继续用 Alt+Tab 切
 以《Stellaris》（SDL 2.26.5 静态链接 + GDI）为例，无边框全屏窗口的几何来自两处：
 
 ```
-窗口尺寸 <- GDI32!GetDeviceCaps(hdc, HORZRES/VERTRES)  -> SDL display desktop_mode
+窗口尺寸 <- GDI32!GetDeviceCaps(hdc, HORZRES/VERTRES)  -> SDL display.desktop_mode
+         <- USER32!EnumDisplaySettingsW(device, i)      -> SDL display_modes 列表（引擎可能取列表首项）
 窗口位置 <- USER32!GetMonitorInfoW(rcMonitor)           -> SDL_WINDOWPOS_CENTERED 居中
 ```
 
-把两者都改为工作区（`rcWork`）后，居中结果正好等于 `rcWork`，窗口铺满工作区。
+尺寸有两条来源，且都只在特定时机被读取：
+
+- `display.desktop_mode` 由 `WIN_AddDisplay` 在 **SDL 视频初始化** 或收到 **WM_DISPLAYCHANGE** 时调用
+  `GetDeviceCaps` 填充，缓存后窗口创建只读缓存；
+- `display_modes` 列表由 `WIN_GetDisplayModes` 逐项调用 `EnumDisplaySettingsW` 填充，**不经过**
+  `GetDeviceCaps`。
+
+所以框架做三件事：改 `GetDeviceCaps`、改 `EnumDisplaySettingsW`、并在注入后主动发一次
+`WM_DISPLAYCHANGE` 让 SDL 重建 `desktop_mode` 缓存；位置则用 `GetMonitorInfoW` 把 `rcMonitor`
+换成 `rcWork`。三者一致后，居中结果正好等于 `rcWork`，窗口铺满工作区。
 完整定位过程与证据见 `stellaris_borderless_fullscreen_trace.md`（不在版本库内）。
 
 ## 组成
@@ -44,6 +54,9 @@ src/core/                    waf_core 静态库：yamlmini / runtime / config
 src/hook/                    injector.dll
   dllmain.cpp                读配置 -> 匹配进程 -> 安装组件 hook
   components/                一个组件一个文件
+    get_monitor_info.cpp     位置：rcMonitor -> rcWork
+    get_device_caps.cpp      尺寸来源一：desktop_mode
+    enum_display_settings.cpp 尺寸来源二：显示模式列表
 src/app/                     WorkAreaFullscreen.exe
   main.cpp                   入口与命令行
   app.cpp                    窗口 + D3D11 + ImGui + 托盘 + 配置读写/热重载
@@ -89,7 +102,7 @@ ctest --preset release
 宿主日志写到 `%TEMP%\WorkAreaFullscreen.log`，被注入模块的日志写到
 `%TEMP%\WorkAreaFullscreen-hook.log`（两者分开，便于同时排查）。
 
-**延迟注入**：游戏启动瞬间注入会让部分引擎崩溃，因此发现目标后默认等 400 ms 再注入
+**注入时机**：目标启动瞬间注入会让部分引擎崩溃，因此默认在其启动后 300 ms 注入
 （`inject_delay_ms` 可调）。
 
 **权限**：若目标以管理员身份运行，本程序也需以管理员身份启动，否则 `OpenProcess` 会被拒绝。
@@ -98,8 +111,8 @@ ctest --preset release
 
 ```yaml
 enabled: true              # 全局开关
-inject_delay_ms: 400       # 发现目标后延迟注入
-scan_interval_ms: 1000     # 进程扫描间隔
+inject_delay_ms: 300       # 目标进程“启动后”多少毫秒注入
+scan_interval_ms: 200      # 进程扫描间隔
 
 ui:
   minimize_to_tray: true   # 关闭窗口时收进托盘
@@ -121,9 +134,17 @@ targets:
           - HORZRES
           - VERTRES
         scope: callsite
+      EnumDisplaySettingsW:
+        enabled: true
+        scope: global           # 策略表里没有该组件的调用点，只能按全局处理
     safety:
       verify_callsite: true     # 注入前校验调用点字节与 IAT 槽
 ```
+
+**注入时机**：`inject_delay_ms` 是**目标进程启动后**多少毫秒注入，不是"发现后"再等多久。
+目标的显示初始化（SDL 枚举显示器、缓存 desktop_mode）只发生一次，注入晚于它就只能靠
+`EnumDisplaySettingsW` + `WM_DISPLAYCHANGE` 补救。扫描间隔越小越能及时发现目标（默认 200 ms）；
+hook 日志里会记录注入时目标已运行了多少毫秒，便于判断是否赶上窗口期。
 
 **`scope`**
 

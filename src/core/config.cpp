@@ -163,6 +163,13 @@ TargetRule NewDefaultRule(const std::string& executable)
     }
     r.hooks.push_back(std::move(gdc));
 
+    // 尺寸的另一条来源：SDL 的显示模式列表由 EnumDisplaySettingsW 逐项填充，不经 GetDeviceCaps。
+    HookSetting eds;
+    eds.name = "EnumDisplaySettingsW";
+    eds.scope = "global";   // 策略表里没有该组件的调用点，只能按全局处理
+    eds.params.kind = yamlmini::Node::Map;
+    r.hooks.push_back(std::move(eds));
+
     return r;
 }
 

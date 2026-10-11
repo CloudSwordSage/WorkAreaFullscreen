@@ -82,6 +82,7 @@ target_link_libraries(waf_core PUBLIC user32 gdi32)
 # ---------------------------------------------------------------------------
 add_library(injector SHARED
     src/hook/dllmain.cpp
+    src/hook/components/enum_display_settings.cpp
     src/hook/components/get_device_caps.cpp
     src/hook/components/get_monitor_info.cpp
 )
