@@ -86,7 +86,8 @@ ctest --preset release
 
 界面左上角是「保存 / 重新加载 / 收进托盘」，左侧编辑全局设置与规则，右侧是已注入进程与日志。
 关闭窗口默认收进托盘（可在配置或界面里关掉）。托盘右键：显示主窗口 / 重新加载配置 / 退出。
-日志同时写入 `%TEMP%\WorkAreaFullscreen.log`。
+宿主日志写到 `%TEMP%\WorkAreaFullscreen.log`，被注入模块的日志写到
+`%TEMP%\WorkAreaFullscreen-hook.log`（两者分开，便于同时排查）。
 
 **延迟注入**：游戏启动瞬间注入会让部分引擎崩溃，因此发现目标后默认等 400 ms 再注入
 （`inject_delay_ms` 可调）。
@@ -153,11 +154,15 @@ UI 里「添加规则」按下时使用 `waf::NewDefaultRule()` 的模板（当�
 
 ```powershell
 ctest --preset release                       # YAML/配置的解析与序列化往返
-pwsh -File tests\run_integration.ps1         # 注入 probe_host，断言改写生效
+pwsh -File tests\run_integration.ps1         # --inject 单次注入 probe_host，断言改写生效
+pwsh -File tests\run_watch_test.ps1          # 常驻宿主轮询 -> 延迟 -> 自动注入（会短暂弹窗）
 ```
 
 `run_integration.ps1` 通过 `--inject` 让主程序对 `probe_host.exe` 做一次真实注入，断言：
 注入后 `rcMonitor` 等于注入前的 `rcWork`，且 `GetDeviceCaps(HORZRES/VERTRES)` 等于工作区宽高。
+
+`run_watch_test.ps1` 走的是后台那条路径：启动常驻宿主，再启动 `probe_host.exe`，
+断言宿主在扫描间隔内发现目标、等待 `inject_delay_ms` 后完成注入并装好全部组件。
 
 ## 打包
 

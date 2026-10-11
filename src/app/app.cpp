@@ -400,6 +400,7 @@ int RunUi(const std::wstring& configPath)
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.IniFilename = nullptr;   // 布局固定，不在工作目录留 imgui.ini
     LoadFont(io);
     ImGui::StyleColorsDark();
     ImGui_ImplWin32_Init(g_hwnd);
@@ -422,10 +423,15 @@ int RunUi(const std::wstring& configPath)
             st.lastCheckTick = now;
             CheckConfigReload(st);
         }
-        if (st.config.enabled && now - st.lastScanTick >= (ULONGLONG)st.config.scanIntervalMs) {
-            st.lastScanTick = now;
-            WatchStep(st);
-            UpdateTrayTip(st);
+        if (st.config.enabled) {
+            if (now - st.lastScanTick >= (ULONGLONG)st.config.scanIntervalMs) {
+                st.lastScanTick = now;
+                WatchStep(st);
+                UpdateTrayTip(st);
+            }
+            ProcessPendingInjections(st);   // 每帧检查已到期的延迟注入
+        } else if (!st.pending.empty()) {
+            st.pending.clear();             // 关闭监听后不再补做注入
         }
 
         if (!st.showWindow) {   // 收进托盘时不渲染，只做后台工作

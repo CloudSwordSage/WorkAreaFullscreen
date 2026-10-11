@@ -85,7 +85,7 @@ void HkLogOpen()
     char  path[MAX_PATH] = { 0 };
     DWORD n              = GetTempPathA(MAX_PATH, path);
     if (n == 0 || n > MAX_PATH - 12) lstrcpyA(path, "C:\\Windows\\Temp\\");
-    lstrcatA(path, "WorkAreaFullscreen.log");
+    lstrcatA(path, "WorkAreaFullscreen-hook.log");
 
     g_log = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
                         NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
