@@ -1,13 +1,21 @@
-// ui.cpp - ImGui 界面：全局设置、目标规则编辑、运行状态与日志。
+// ui.cpp - ImGui 界面：配置编辑与启动代理管理。
+//
+// 本程序不监听进程、不注入；每一条规则可以挂上/摘掉 IFEO 启动代理，
+// 实际注入由 HookLauncher.exe 在目标执行第一条指令前完成。
 #include "app.h"
 
 #include <imgui.h>
 
 #include <string>
 
-namespace waf::app {
+#include "waf/ifeo.h"
 
+namespace waf::app {
 namespace {
+
+const ImVec4 kGreen = ImVec4(0.4f, 0.9f, 0.5f, 1.0f);
+const ImVec4 kAmber = ImVec4(1.0f, 0.75f, 0.2f, 1.0f);
+const ImVec4 kRed   = ImVec4(0.95f, 0.45f, 0.4f, 1.0f);
 
 // 让 InputText 直接编辑 std::string：内容变长时按需重分配缓冲区。
 int StrResizeCallback(ImGuiInputTextCallbackData* d)
@@ -52,27 +60,50 @@ HookSetting MakeHookFromCatalog(const ComponentInfo& c)
 
 void DrawGlobal(State& st)
 {
-    AppConfig& cfg = st.config;
+    AppConfig& cfg   = st.config;
     bool       dirty = false;
 
     ImGui::SeparatorText("全局");
-    dirty |= ImGui::Checkbox("启用监听与注入", &cfg.enabled);
     dirty |= ImGui::Checkbox("关闭窗口时收进托盘", &cfg.minimizeToTray);
 
-    ImGui::SetNextItemWidth(150);
-    dirty |= ImGui::InputInt("注入延迟 (ms)", &cfg.injectDelayMs);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("目标进程“启动后”多少毫秒注入。\n必须在目标完成显示初始化之前，否则改不到窗口尺寸。\n立即注入会让部分引擎崩溃，故不要设得过小。");
-
-    ImGui::SetNextItemWidth(150);
-    dirty |= ImGui::InputInt("扫描间隔 (ms)", &cfg.scanIntervalMs);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("轮询进程列表的间隔。\n越小越能赶在目标初始化完成前发现它；\n设得太大会错过注入时机。");
-
-    if (cfg.injectDelayMs < 0)    { cfg.injectDelayMs = 0;   dirty = true; }
-    if (cfg.scanIntervalMs < 100) { cfg.scanIntervalMs = 100; dirty = true; }
+    if (!waf::IsProcessElevated())
+        ImGui::TextColored(kAmber, "未以管理员身份运行：可以编辑配置，但挂/摘启动代理会失败");
 
     if (dirty) st.configDirty = true;
+}
+
+// 一条规则的启动代理开关：状态直接来自注册表，不存进配置。
+void DrawLaunchProxy(State& st, const TargetRule& t)
+{
+    ImGui::SeparatorText("启动代理");
+
+    const std::string exeName = waf::ExeNameOf(t.executable);
+    if (exeName.empty()) {
+        ImGui::TextDisabled("先填写进程名");
+        return;
+    }
+
+    std::wstring installed;
+    const bool   on = waf::IfeoIsInstalled(exeName, &installed);
+    if (on)
+        ImGui::TextColored(kGreen, "已挂载 -> %s", Narrow(installed).c_str());
+    else
+        ImGui::TextDisabled("未挂载");
+
+    const bool elevated = waf::IsProcessElevated();
+    if (!elevated) ImGui::BeginDisabled();
+    if (!on) {
+        if (ImGui::Button("挂载启动代理")) SetLaunchProxy(st, exeName, true);
+    } else {
+        if (ImGui::Button("摘除启动代理")) SetLaunchProxy(st, exeName, false);
+    }
+    if (!elevated) ImGui::EndDisabled();
+
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("挂载后，任何程序启动 %s 都会先经过 HookLauncher，\n"
+                          "在目标执行第一条指令之前完成注入（需要管理员权限）。\n"
+                          "摘除后即恢复原始启动方式。",
+                          exeName.c_str());
 }
 
 void DrawTargets(State& st)
@@ -125,7 +156,7 @@ void DrawTargets(State& st)
 
         dirty |= ImGui::Checkbox("校验调用点", &t.verifyCallsite);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("注入前按 RVA 校验指令字节与 IAT 槽；\n版本不匹配时回退为不改写。");
+            ImGui::SetTooltip("注入前按 RVA 校验指令字节；版本不匹配时回退为不改写。");
 
         ImGui::SeparatorText("hook 组件");
 
@@ -176,6 +207,8 @@ void DrawTargets(State& st)
             ImGui::EndPopup();
         }
 
+        DrawLaunchProxy(st, t);
+
         if (ImGui::SmallButton("删除此规则")) removeAt = static_cast<int>(i);
         if (dirty) st.configDirty = true;
 
@@ -191,21 +224,22 @@ void DrawTargets(State& st)
 
 void DrawStatus(State& st)
 {
-    ImGui::SeparatorText("运行状态");
+    ImGui::SeparatorText("部署状态");
     ImGui::TextWrapped("配置文件：%s", Narrow(st.configPath).c_str());
-    ImGui::Text("进程监听：轮询（间隔 %d ms）%s", st.config.scanIntervalMs,
-                ProcessWatcherActive() ? " + WMI 事件" : "");
-    if (ProcessWatcherActive())
-        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "WMI 进程事件订阅已生效");
-    else
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
-                           "提示：以管理员身份运行可额外启用 WMI 进程事件订阅");
-    ImGui::Text("已注入进程：%zu", st.injectedPids.size());
-    for (DWORD pid : st.injectedPids) ImGui::BulletText("PID %lu", pid);
-    if (!st.pending.empty())
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "等待注入：%zu", st.pending.size());
-    if (!st.injecting.empty())
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "正在注入：%zu", st.injecting.size());
+    ImGui::Text("管理员权限：%s", waf::IsProcessElevated() ? "是" : "否（无法修改启动代理）");
+
+    const struct {
+        const wchar_t* label;
+        std::wstring   path;
+    } files[] = {
+        { L"HookLauncher.exe", LauncherPath() },
+        { L"injector.dll",     InjectorPath() },
+    };
+    for (const auto& f : files) {
+        const bool exists = GetFileAttributesW(f.path.c_str()) != INVALID_FILE_ATTRIBUTES;
+        ImGui::TextColored(exists ? kGreen : kRed, "%ls：%s", f.label,
+                           exists ? "已就位" : "缺失（请与本程序放在同一目录）");
+    }
 
     ImGui::SeparatorText("日志");
     ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_Border,
@@ -233,7 +267,7 @@ void DrawUi(State& st)
     ImGui::SameLine();
     if (ImGui::Button("重新加载")) ReloadConfig(st);
     ImGui::SameLine();
-    if (st.configDirty) ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "● 有未保存修改");
+    if (st.configDirty) ImGui::TextColored(kAmber, "● 有未保存修改");
     else                ImGui::TextDisabled("已保存");
     ImGui::SameLine();
     if (ImGui::Button("收进托盘")) HideMainWindow(st);

@@ -125,7 +125,6 @@ static void TestScalarsAndQuotes()
 static void TestAppConfig()
 {
     waf::AppConfig cfg = waf::DefaultConfig();
-    cfg.injectDelayMs  = 250;
     cfg.minimizeToTray = false;
 
     const std::string text = cfg.Dump("# header\n");
@@ -136,14 +135,14 @@ static void TestAppConfig()
     if (!waf::AppConfig::Parse(text, back, err)) printf("config parse: %s\n", err.c_str());
     assert(waf::AppConfig::Parse(text, back, err));
 
-    assert(back.injectDelayMs == 250);
     assert(back.minimizeToTray == false);
     assert(back.targets.size() == 1);
     assert(back.targets[0].executable == "stellaris.exe");
     assert(back.targets[0].geometry == "work_area");
-    assert(back.targets[0].hooks.size() == 2);
+    assert(back.targets[0].hooks.size() == 3);
     assert(back.targets[0].hooks[0].name == "GetMonitorInfoW");
     assert(back.targets[0].hooks[1].name == "GetDeviceCaps");
+    assert(back.targets[0].hooks[2].name == "EnumDisplaySettingsW");
     assert(back.targets[0].hooks[0].params.find("fields") != nullptr);
     assert(back.targets[0].hooks[1].params.find("indices") != nullptr);
 

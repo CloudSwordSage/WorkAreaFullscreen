@@ -1,4 +1,7 @@
-// app.h - 常驻宿主的状态与模块接口。
+// app.h - WorkAreaFullscreen 的状态与接口。
+//
+// 本程序只做两件事：编辑配置、把“启动代理”（IFEO）挂到目标上。真正的注入由
+// HookLauncher.exe 在目标执行第一条指令之前完成，本程序不监听进程、不注入。
 #pragma once
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -20,22 +23,13 @@ struct LogEntry {
     std::string text;
 };
 
-/** 待注入的进程：发现后等待 injectDelayMs 再注入（立即注入会让部分引擎崩溃）。 */
-struct PendingInject {
-    DWORD       pid = 0;
-    std::string exe;
-    ULONGLONG   due = 0;   ///< GetTickCount64 到期时刻
+/** 一个可供界面添加的 hook 组件（来自 injector.dll 的导出目录）。 */
+struct ComponentInfo {
+    std::string name;
+    std::string defaultConfigYaml;   ///< 描述该组件默认参数的 YAML 片段，可为空
 };
 
-/** 一次后台注入的结果，由工作线程写、主线程取。 */
-struct InjectResult {
-    DWORD       pid = 0;
-    std::string exe;
-    bool        ok = false;
-    std::string err;
-};
-
-/** 常驻宿主的全部可变状态；只在主线程访问（WndProc、扫描、注入都在主线程）。 */
+/** 程序状态；只在主线程访问（WndProc 也在主线程）。 */
 struct State {
     std::wstring configPath;                 ///< 配置文件绝对路径
     AppConfig    config;                     ///< 当前生效配置
@@ -44,17 +38,11 @@ struct State {
     std::string configRaw;                   ///< 磁盘原文，避免用内容相同的时间戳重载
     bool        configDirty = false;         ///< 界面有未保存修改
 
-    std::vector<DWORD>         injectedPids; ///< 已注入的进程，避免重复注入
-    std::vector<DWORD>         injecting;    ///< 已交给后台线程、尚未回结果的进程
-    std::vector<PendingInject> pending;      ///< 等待延迟到期的注入
-    ULONGLONG                  lastScanTick  = 0;
-    ULONGLONG                  lastCheckTick = 0;
-
     std::vector<LogEntry> log;
-    bool            showWindow  = true;      ///< 主窗口是否可见（false = 收在托盘）
-    bool            requestExit = false;
+    bool            showWindow     = true;   ///< 主窗口是否可见（false = 收在托盘）
+    bool            requestExit    = false;
+    ULONGLONG       lastCheckTick  = 0;      ///< 配置热重载的检查节流
     NOTIFYICONDATAW nid{};
-    int             trayShownCount = -1;     ///< 托盘提示里已显示的注入数，避免无谓地调用 shell
 };
 
 /** 宽字符串转 UTF-8（界面与日志显示用）。 */
@@ -81,12 +69,6 @@ inline std::wstring SelfDir()
     GetModuleFileNameW(nullptr, self, MAX_PATH);
     return DirOf(self);
 }
-
-/** 一个可供界面添加的 hook 组件（来自 injector.dll 的导出目录）。 */
-struct ComponentInfo {
-    std::string name;
-    std::string defaultConfigYaml;   ///< 描述该组件默认参数的 YAML 片段，可为空
-};
 
 /**
  * 可添加的组件目录。
@@ -121,32 +103,26 @@ bool SaveConfig(State& st);
 /** 绘制一帧界面。 */
 void DrawUi(State& st);
 
-// ---- 进程监听与注入 ----
+// ---- 启动代理（IFEO）----
 
-/** 启动进程创建事件监听（WMI，订阅失败会自动回退轮询）。进入主循环前调用一次。 */
-void StartProcessWatcher(State& st);
+/** 本程序同目录下的启动代理路径。 */
+std::wstring LauncherPath();
 
-/** 取回 WMI 事件并排定注入（主线程每帧调用），同时输出订阅状态提示。 */
-void CollectProcessEvents(State& st);
+/** 本程序同目录下的注入模块路径。 */
+std::wstring InjectorPath();
 
-/** WMI 事件订阅是否可用；false 表示当前在用轮询回退。 */
-bool ProcessWatcherActive();
-
-/** 轮询扫描目标列表（仅在 WMI 订阅不可用时作为回退）。 */
-void WatchStep(State& st);
-
-/** 处理到期的注入：提交给后台线程，本函数不做阻塞调用。 */
-void ProcessPendingInjections(State& st);
-
-/** 取回后台注入线程的结果并记日志（主线程每帧调用）。 */
-void CollectInjectResults(State& st);
-
-/** 单次模式：按配置启动目标并注入，等待目标退出。 @return 目标退出码。 */
-int RunInjectOnce(const std::wstring& configPath, const std::wstring& exePath, int delayMsOverride);
+/**
+ * 为某个目标挂上或摘掉启动代理。
+ *
+ * @param exeName 映像名，如 stellaris.exe。
+ * @param on      true 安装，false 卸载。
+ * @return 成功为 true；失败原因会写进 st.log。
+ */
+bool SetLaunchProxy(State& st, const std::string& exeName, bool on);
 
 // ---- 入口 ----
 
-/** 常驻模式：窗口 + 托盘 + 主循环。 @return 进程退出码。 */
+/** 主界面：窗口 + 托盘 + 配置编辑 + 启动代理管理。 @return 进程退出码。 */
 int RunUi(const std::wstring& configPath);
 
 } // namespace waf::app

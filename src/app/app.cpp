@@ -1,4 +1,6 @@
-// app.cpp - 常驻宿主：Win32 窗口 + D3D11 + ImGui、托盘、配置读写与热重载。
+// app.cpp - 主界面：Win32 窗口 + D3D11 + ImGui、托盘、配置读写与热重载、启动代理管理。
+//
+// 本程序不监听进程、也不注入；注入由 HookLauncher.exe 在目标执行第一条指令之前完成。
 #include "app.h"
 
 #include <d3d11.h>
@@ -9,14 +11,15 @@
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
+#include "waf/ifeo.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
 namespace waf::app {
 namespace {
 
-constexpr UINT   kTrayMsg = WM_APP + 1;
-constexpr UINT   kTrayId  = 1;
+constexpr UINT    kTrayMsg    = WM_APP + 1;
+constexpr UINT    kTrayId     = 1;
 constexpr wchar_t kWndClass[] = L"WorkAreaFullscreenWnd";
 
 ID3D11Device*           g_device  = nullptr;
@@ -31,8 +34,6 @@ const char* kConfigHeader =
     "# WorkAreaFullscreen 配置\n"
     "# 由界面保存时重写；手工编辑后程序会自动热重载。\n"
     "#\n"
-    "# inject_delay_ms   发现目标进程后延迟注入的毫秒数（立即注入会让部分引擎崩溃）\n"
-    "# scan_interval_ms  目标进程扫描间隔\n"
     "# geometry          work_area = 窗口铺满工作区（保留任务栏）；monitor = 显示器整块区域\n"
     "\n";
 
@@ -173,21 +174,8 @@ void CreateTray(State& st)
     st.nid.uFlags           = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     st.nid.uCallbackMessage = kTrayMsg;
     st.nid.hIcon            = LoadIconW(nullptr, (LPCWSTR)IDI_APPLICATION);
-    wcsncpy_s(st.nid.szTip, L"WorkAreaFullscreen", _TRUNCATE);
+    wcsncpy_s(st.nid.szTip, L"WorkAreaFullscreen — 配置与启动代理", _TRUNCATE);
     Shell_NotifyIconW(NIM_ADD, &st.nid);
-}
-
-void UpdateTrayTip(State& st)
-{
-    const int active = (int)st.injectedPids.size();
-    // 只有内容真的变了才去通知 shell：Shell_NotifyIcon 是跨进程同步调用，
-    // explorer 正忙（例如截图工具在操作桌面）时它会阻塞，进而拖住整个界面线程。
-    if (active == st.trayShownCount) return;
-    st.trayShownCount = active;
-
-    _snwprintf_s(st.nid.szTip, _TRUNCATE, L"WorkAreaFullscreen — 已注入 %d 个进程", active);
-    st.nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    Shell_NotifyIconW(NIM_MODIFY, &st.nid);
 }
 
 void RemoveTray(State& st)
@@ -259,7 +247,7 @@ void LoadComponentCatalog()
     if (loaded) return;
     loaded = true;
 
-    const std::wstring path = SelfDir() + L"\\injector.dll";
+    const std::wstring path = InjectorPath();
     if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) return;
 
     // 让 DLL 知道这次加载只为读目录：绝不能在宿主进程里初始化 hook。
@@ -287,6 +275,9 @@ void LoadComponentCatalog()
 
 } // namespace
 
+std::wstring LauncherPath() { return SelfDir() + L"\\HookLauncher.exe"; }
+std::wstring InjectorPath() { return SelfDir() + L"\\injector.dll"; }
+
 const std::vector<ComponentInfo>& AvailableComponents()
 {
     LoadComponentCatalog();
@@ -309,7 +300,8 @@ bool EnsureConfigFile(const std::wstring& path)
 }
 
 void OpenLogFile()
-{    if (g_logFile != INVALID_HANDLE_VALUE) return;
+{
+    if (g_logFile != INVALID_HANDLE_VALUE) return;
     wchar_t tmp[MAX_PATH]{};
     GetTempPathW(MAX_PATH, tmp);
     const std::wstring logPath = std::wstring(tmp) + L"WorkAreaFullscreen.log";
@@ -364,8 +356,7 @@ bool ReloadConfig(State& st)
         FileStamp(st.configPath, st.configStamp, ignored);   // 刷新时间戳
     }
 
-    Log(st, "配置已加载：%zu 条规则，延迟 %d ms，扫描间隔 %d ms",
-        st.config.targets.size(), st.config.injectDelayMs, st.config.scanIntervalMs);
+    Log(st, "配置已加载：%zu 条规则", st.config.targets.size());
     return true;
 }
 
@@ -387,7 +378,7 @@ bool SaveConfig(State& st)
 }
 
 // 外部改动（编辑器保存）时热重载；界面有未保存修改时不覆盖。
-static void CheckConfigReload(State& st)
+void CheckConfigReload(State& st)
 {
     FILETIME stamp{};
     std::string raw;
@@ -402,6 +393,35 @@ static void CheckConfigReload(State& st)
     }
     Log(st, "检测到配置文件变化，正在热重载");
     ReloadConfig(st);
+}
+
+bool SetLaunchProxy(State& st, const std::string& exeName, bool on)
+{
+    if (exeName.empty()) {
+        Log(st, "启动代理：进程名为空");
+        return false;
+    }
+
+    std::string err;
+    if (on) {
+        const std::wstring launcher = LauncherPath();
+        if (GetFileAttributesW(launcher.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            Log(st, "挂启动代理失败：找不到 %s", Narrow(launcher).c_str());
+            return false;
+        }
+        if (!waf::IfeoInstall(exeName, L"\"" + launcher + L"\"", err)) {
+            Log(st, "挂启动代理失败（%s）：%s", exeName.c_str(), err.c_str());
+            return false;
+        }
+        Log(st, "已为 %s 挂上启动代理 -> %s", exeName.c_str(), Narrow(launcher).c_str());
+    } else {
+        if (!waf::IfeoUninstall(exeName, err)) {
+            Log(st, "摘启动代理失败（%s）：%s", exeName.c_str(), err.c_str());
+            return false;
+        }
+        Log(st, "已为 %s 摘掉启动代理", exeName.c_str());
+    }
+    return true;
 }
 
 int RunUi(const std::wstring& configPath)
@@ -423,7 +443,7 @@ int RunUi(const std::wstring& configPath)
 
     g_state = &st;
     g_hwnd  = CreateWindowW(kWndClass, L"WorkAreaFullscreen", WS_OVERLAPPEDWINDOW,
-                            CW_USEDEFAULT, CW_USEDEFAULT, 1000, 700,
+                            CW_USEDEFAULT, CW_USEDEFAULT, 1040, 760,
                             nullptr, nullptr, wc.hInstance, nullptr);
     if (!g_hwnd) {
         MessageBoxW(nullptr, L"创建窗口失败", L"WorkAreaFullscreen", MB_ICONERROR);
@@ -453,9 +473,9 @@ int RunUi(const std::wstring& configPath)
     ImGui_ImplDX11_Init(g_device, g_context);
 
     CreateTray(st);
-    UpdateTrayTip(st);
-    Log(st, "WorkAreaFullscreen 已启动");
-    StartProcessWatcher(st);
+    Log(st, "WorkAreaFullscreen 已启动（配置工具：编辑配置 + 管理启动代理）");
+    if (!waf::IsProcessElevated())
+        Log(st, "当前未以管理员身份运行：可以编辑配置，但挂/摘启动代理需要管理员权限");
 
     while (!st.requestExit) {
         MSG msg;
@@ -470,22 +490,8 @@ int RunUi(const std::wstring& configPath)
             st.lastCheckTick = now;
             CheckConfigReload(st);
         }
-        CollectProcessEvents(st);           // WMI 事件（含订阅状态提示）
-        if (st.config.enabled) {
-            // 轮询始终保留：WMI 事件要经 WMI 服务中转，实测有 0.6~1.7 秒抖动，比按配置间隔
-            // 直接扫描还慢；两者并行，谁先发现谁排入队列（QueueInjection 会去重）。
-            if (now - st.lastScanTick >= (ULONGLONG)st.config.scanIntervalMs) {
-                st.lastScanTick = now;
-                WatchStep(st);
-                UpdateTrayTip(st);
-            }
-            ProcessPendingInjections(st);   // 提交到期的注入（不阻塞本线程）
-        } else if (!st.pending.empty()) {
-            st.pending.clear();             // 关闭监听后不再补做注入
-        }
-        CollectInjectResults(st);           // 取回后台注入线程的结果
 
-        if (!st.showWindow) {   // 收进托盘时不渲染，只做后台工作
+        if (!st.showWindow) {   // 收进托盘时不渲染
             Sleep(50);
             continue;
         }

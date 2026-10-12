@@ -1,8 +1,9 @@
-// main.cpp - 入口：默认进入常驻 UI 模式，--inject 进入单次注入模式。
+// main.cpp - 入口：配置编辑器 + 启动代理管理者。
+//
+// 实际注入由 HookLauncher.exe 在目标执行第一条指令之前完成，本程序不监听进程、不注入。
 #include "app.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 
 #include <string>
 
@@ -10,7 +11,7 @@ namespace {
 
 std::wstring DefaultConfigPath()
 {
-    wchar_t appdata[MAX_PATH]{};
+    wchar_t     appdata[MAX_PATH]{};
     const DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
     if (n > 0 && n < MAX_PATH) {
         const std::wstring dir = std::wstring(appdata) + L"\\WorkAreaFullscreen";
@@ -34,20 +35,15 @@ std::wstring ToAbsolute(const std::wstring& path)
 int wmain(int argc, wchar_t** argv)
 {
     std::wstring configPath;
-    std::wstring injectExe;
-    int          delayOverride = -1;
 
     for (int i = 1; i < argc; ++i) {
         const std::wstring a = argv[i];
-        const bool         hasNext = (i + 1 < argc);
-        if (a == L"--config" && hasNext)     configPath    = argv[++i];
-        else if (a == L"--inject" && hasNext) injectExe    = argv[++i];
-        else if (a == L"--delay" && hasNext)  delayOverride = _wtoi(argv[++i]);
-        else {
-            printf("usage: WorkAreaFullscreen.exe [--config <path>] [--inject <exe>] [--delay <ms>]\n"
-                   "  (无参数)         常驻：窗口 + 托盘，监听目标进程启动\n"
-                   "  --inject <exe>   单次：启动该程序并按配置注入，等它退出\n"
-                   "  --delay <ms>     覆盖配置里的注入延迟\n");
+        if (a == L"--config" && i + 1 < argc) {
+            configPath = argv[++i];
+        } else {
+            printf("usage: WorkAreaFullscreen.exe [--config <path>]\n"
+                   "  配置编辑器 + 启动代理管理者。\n"
+                   "  实际注入由同目录的 HookLauncher.exe 在目标启动时完成。\n");
             return 2;
         }
     }
@@ -56,9 +52,6 @@ int wmain(int argc, wchar_t** argv)
     configPath = ToAbsolute(configPath);
     waf::app::EnsureConfigFile(configPath);
 
-    if (!injectExe.empty())
-        return waf::app::RunInjectOnce(configPath, ToAbsolute(injectExe), delayOverride);
-
-    FreeConsole();   // 常驻模式不需要控制台，避免多一个黑窗口
+    FreeConsole();   // 界面程序不需要控制台
     return waf::app::RunUi(configPath);
 }

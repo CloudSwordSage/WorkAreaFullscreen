@@ -21,6 +21,8 @@
 #include <string>
 #include <string.h>
 
+#include "waf/ifeo.h"
+
 namespace {
 
 HANDLE g_log = INVALID_HANDLE_VALUE;
@@ -70,12 +72,6 @@ std::wstring DirOf(const std::wstring& path)
 {
     const size_t sep = path.find_last_of(L"\\/");
     return (sep == std::wstring::npos) ? std::wstring(L".") : path.substr(0, sep);
-}
-
-std::wstring BaseName(const std::wstring& path)
-{
-    const size_t sep = path.find_last_of(L"\\/");
-    return (sep == std::wstring::npos) ? path : path.substr(sep + 1);
 }
 
 /**
@@ -137,49 +133,6 @@ bool InjectDll(DWORD pid, const std::wstring& dllPath, bool targetSuspended, std
     if (freeBuf) VirtualFreeEx(proc, remote, 0, MEM_RELEASE);
     CloseHandle(proc);
     return ok;
-}
-
-// ---- IFEO 注册表 ----
-
-const wchar_t* kIfeoRoot = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options";
-
-bool SetIfeo(const std::wstring& exeName, const std::wstring& debugger, std::string& err)
-{
-    const std::wstring sub = std::wstring(kIfeoRoot) + L"\\" + exeName;
-    HKEY               key = nullptr;
-    const LSTATUS      st  = RegCreateKeyExW(HKEY_LOCAL_MACHINE, sub.c_str(), 0, nullptr,
-                                             REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key, nullptr);
-    if (st != ERROR_SUCCESS) {
-        err = "创建 IFEO 键失败（需要管理员权限）err=" + std::to_string(st);
-        return false;
-    }
-
-    const DWORD   bytes = static_cast<DWORD>((debugger.size() + 1) * sizeof(wchar_t));
-    const LSTATUS st2   = RegSetValueExW(key, L"Debugger", 0, REG_SZ,
-                                         reinterpret_cast<const BYTE*>(debugger.c_str()), bytes);
-    RegCloseKey(key);
-    if (st2 != ERROR_SUCCESS) {
-        err = "写入 Debugger 值失败 err=" + std::to_string(st2);
-        return false;
-    }
-    return true;
-}
-
-bool ClearIfeo(const std::wstring& exeName, std::string& err)
-{
-    const std::wstring sub = std::wstring(kIfeoRoot) + L"\\" + exeName;
-    HKEY               key = nullptr;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, sub.c_str(), 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) {
-        err = "打开 IFEO 键失败（可能本就没安装过）";
-        return false;
-    }
-    const LSTATUS st = RegDeleteValueW(key, L"Debugger");
-    RegCloseKey(key);
-    if (st != ERROR_SUCCESS && st != ERROR_FILE_NOT_FOUND) {
-        err = "删除 Debugger 值失败 err=" + std::to_string(st);
-        return false;
-    }
-    return true;
 }
 
 // ---- 作为调试器运行目标 ----
@@ -307,22 +260,22 @@ int wmain(int argc, wchar_t** argv)
             fwprintf(stderr, L"缺少目标 exe 路径\n");
             return 2;
         }
-        const std::wstring exeName = BaseName(argv[2]);
+        const std::string exeName = waf::ExeNameOf(Narrow(argv[2]));
 
         std::string err;
         if (first == L"--install") {
             const std::wstring self = SelfExePath();
-            if (!SetIfeo(exeName, L"\"" + self + L"\"", err)) {
+            if (!waf::IfeoInstall(exeName, L"\"" + self + L"\"", err)) {
                 printf("安装失败：%s\n", err.c_str());
                 return 1;
             }
-            printf("已安装 IFEO 启动代理：%ls -> %ls\n", exeName.c_str(), self.c_str());
+            printf("已安装 IFEO 启动代理：%s -> %ls\n", exeName.c_str(), self.c_str());
         } else {
-            if (!ClearIfeo(exeName, err)) {
+            if (!waf::IfeoUninstall(exeName, err)) {
                 printf("卸载失败：%s\n", err.c_str());
                 return 1;
             }
-            printf("已卸载 IFEO 启动代理：%ls\n", exeName.c_str());
+            printf("已卸载 IFEO 启动代理：%s\n", exeName.c_str());
         }
         return 0;
     }

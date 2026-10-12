@@ -17,7 +17,6 @@ yamlmini::Node Scalar(const std::string& v)
 const char* B(bool v) { return v ? "true" : "false"; }
 
 bool   BoolOf(const yamlmini::Node* n, bool def)          { return n ? n->toBool(def) : def; }
-int    IntOf(const yamlmini::Node* n, int def)            { return n ? n->toInt(def) : def; }
 std::string StrOf(const yamlmini::Node* n, const char* def) { return n ? n->str(def) : std::string(def); }
 
 } // namespace
@@ -33,10 +32,6 @@ bool AppConfig::Parse(const std::string& text, AppConfig& out, std::string& err)
 
     out                = AppConfig{};
     out.enabled        = BoolOf(root.find("enabled"), true);
-    out.injectDelayMs  = IntOf(root.find("inject_delay_ms"), 400);
-    out.scanIntervalMs = IntOf(root.find("scan_interval_ms"), 1000);
-    if (out.injectDelayMs < 0)    out.injectDelayMs = 0;
-    if (out.scanIntervalMs < 100) out.scanIntervalMs = 100;   // 低于此值只是空转
 
     const yamlmini::Node* ui = root.find("ui");
     out.minimizeToTray = BoolOf(ui ? ui->find("minimize_to_tray") : nullptr, true);
@@ -83,8 +78,6 @@ std::string AppConfig::Dump(const std::string& header) const
     yamlmini::Node root;
     root.kind = yamlmini::Node::Map;
     root.map.emplace_back("enabled", Scalar(B(enabled)));
-    root.map.emplace_back("inject_delay_ms", Scalar(std::to_string(injectDelayMs)));
-    root.map.emplace_back("scan_interval_ms", Scalar(std::to_string(scanIntervalMs)));
 
     yamlmini::Node ui;
     ui.kind = yamlmini::Node::Map;

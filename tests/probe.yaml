@@ -4,8 +4,6 @@
 #   scope: global           —— probe_host 的调用点不在 sdl2-gdi 策略表里
 #   verify_callsite: false  —— probe_host 不是 stellaris.exe，无法按 RVA 校验
 enabled: true
-inject_delay_ms: 300
-scan_interval_ms: 200
 
 ui:
   minimize_to_tray: true

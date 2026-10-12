@@ -30,10 +30,8 @@ struct TargetRule {
 
 /** 全局配置。 */
 struct AppConfig {
-    bool                    enabled        = true;
-    int                     injectDelayMs  = 300;   ///< 目标进程“启动后”多少毫秒注入；必须在目标完成显示初始化之前
-    int                     scanIntervalMs = 200;   ///< 目标进程扫描间隔；越小越能赶在目标初始化完成前发现它
-    bool                    minimizeToTray = true;  ///< 关闭窗口时收进托盘而非退出
+    bool                    enabled        = true;   ///< 总开关（HookLauncher 注入时读）
+    bool                    minimizeToTray = true;   ///< 关闭窗口时收进托盘而非退出
     std::vector<TargetRule> targets;
 
     /**

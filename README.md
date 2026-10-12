@@ -1,42 +1,85 @@
 # WorkAreaFullscreen
 
-把游戏/应用「无边框全屏」的窗口改成「工作区全屏」：窗口铺满桌面工作区，保留任务栏、
-Dock 等系统占用的空间，同时保持无边框（可继续用 Alt+Tab 切出）。
-
-常驻后台，带 ImGui 界面与托盘图标：在界面里配置多个应用的 hook 规则，程序监听这些
-进程的启动并按规则注入；配置文件热重载，改完即对后续启动的进程生效。
-
-## 原理
-
-以《Stellaris》（SDL 2.26.5 静态链接 + GDI）为例，无边框全屏窗口的几何来自两处：
-
-```
-窗口尺寸 <- GDI32!GetDeviceCaps(hdc, HORZRES/VERTRES)  -> SDL display.desktop_mode
-         <- USER32!EnumDisplaySettingsW(device, i)      -> SDL display_modes 列表（引擎可能取列表首项）
-窗口位置 <- USER32!GetMonitorInfoW(rcMonitor)           -> SDL_WINDOWPOS_CENTERED 居中
-```
-
-尺寸有两条来源，且都只在特定时机被读取：
-
-- `display.desktop_mode` 由 `WIN_AddDisplay` 在 **SDL 视频初始化** 或收到 **WM_DISPLAYCHANGE** 时调用
-  `GetDeviceCaps` 填充，缓存后窗口创建只读缓存；
-- `display_modes` 列表由 `WIN_GetDisplayModes` 逐项调用 `EnumDisplaySettingsW` 填充，**不经过**
-  `GetDeviceCaps`。
-
-所以框架做三件事：改 `GetDeviceCaps`、改 `EnumDisplaySettingsW`、并在注入后主动发一次
-`WM_DISPLAYCHANGE` 让 SDL 重建 `desktop_mode` 缓存；位置则用 `GetMonitorInfoW` 把 `rcMonitor`
-换成 `rcWork`。三者一致后，居中结果正好等于 `rcWork`，窗口铺满工作区。
-完整定位过程与证据见 `stellaris_borderless_fullscreen_trace.md`（不在版本库内）。
+把游戏/应用「无边框全屏」的窗口改成「工作区全屏」：窗口铺满桌面工作区，保留任务栏等空间，
+同时保持无边框（可继续用 Alt+Tab 切出）。
 
 ## 组成
 
 | 产物 | 角色 |
 | --- | --- |
-| `WorkAreaFullscreen.exe` | 常驻宿主：ImGui 界面、托盘、进程监听、注入、配置热重载 |
-| `injector.dll` | 被注入目标进程的 hook 模块，按配置安装组件 |
+| `WorkAreaFullscreen.exe` | 配置编辑器 + 启动代理管理者。**不监听进程、不注入** |
+| `HookLauncher.exe` | 启动代理：以调试器身份启动目标，在目标执行第一条指令之前注入 |
+| `injector.dll` | 被注入目标进程的 hook 模块，按配置改写 API 返回值 |
 
-两者共用一份配置：宿主默认读写 `%APPDATA%\WorkAreaFullscreen\config.yaml`，
-DLL 按 `HOOKKIT_CONFIG` → DLL 同目录 → `%APPDATA%\WorkAreaFullscreen` → `%TEMP%` 查找。
+三者必须放在同一目录。
+
+## 工作原理
+
+以《Stellaris》（SDL 2.26.5 静态链接 + GDI）为例，无边框全屏窗口的几何来自两处：
+
+```
+窗口尺寸 <- GDI32!GetDeviceCaps(hdc, HORZRES/VERTRES)  -> SDL display.desktop_mode
+         <- USER32!EnumDisplaySettingsW(device, i)      -> SDL display_modes 列表
+窗口位置 <- USER32!GetMonitorInfoW(rcMonitor)           -> SDL_WINDOWPOS_CENTERED 居中
+```
+
+尺寸有两条来源，且都只在特定时机被读取：`desktop_mode` 由 `WIN_AddDisplay` 在 **SDL 视频初始化**
+或收到 `WM_DISPLAYCHANGE` 时调用 `GetDeviceCaps` 填充；`display_modes` 列表由 `WIN_GetDisplayModes`
+逐项调用 `EnumDisplaySettingsW` 填充。
+
+因此 hook 模块做三件事：改 `GetDeviceCaps`、改 `EnumDisplaySettingsW`、注入后主动发一次
+`WM_DISPLAYCHANGE` 让 SDL 重建 `desktop_mode` 缓存；位置则用 `GetMonitorInfoW` 把 `rcMonitor`
+换成 `rcWork`。三者一致后，居中结果正好等于 `rcWork`，窗口铺满工作区。
+
+**关键前提是注入必须早于目标的显示初始化**——这就是为什么用启动代理而不是"启动后延迟注入"：
+后者本质是在和目标赛跑，实测出现过目标已运行 695 ms 才注入、`GetDeviceCaps` 一次都没被调用的
+情况。启动代理路径实测注入于目标启动后 ~17 ms。
+
+## 启动流程
+
+```
+任意程序启动 <目标>.exe
+      │  Windows IFEO（HKLM\...\Image File Execution Options\<目标>.exe 的 Debugger 值）
+      ▼
+HookLauncher.exe
+      │  以调试器身份创建真正的 <目标>.exe（DEBUG_ONLY_THIS_PROCESS）
+      ▼
+   目标主线程停在系统断点，尚未执行任何用户代码
+      │  注入 injector.dll
+      ▼
+ContinueDebugEvent 放行，目标继续初始化
+```
+
+`DEBUG_ONLY_THIS_PROCESS` 有两个作用：让目标停在入口点，以及避免带 DEBUG 标志的
+`CreateProcess` 再触发一次 IFEO 造成递归。
+
+## 快速开始
+
+```powershell
+# 1) 构建（需要 MSVC；第三方依赖见下）
+cmake --preset release
+cmake --build --preset release
+
+# 2) 打开配置界面，编辑规则
+.\build\release\WorkAreaFullscreen.exe
+
+# 3) 挂载启动代理（界面里点「挂载启动代理」，或命令行；需要管理员权限）
+.\build\release\HookLauncher.exe --install F:\SteamLibrary\steamapps\common\Stellaris\stellaris.exe
+
+# 4) 之后从任意方式启动游戏（含 Steam）即可
+```
+
+摘掉启动代理、恢复原始启动行为：
+
+```powershell
+.\build\release\HookLauncher.exe --uninstall <目标.exe>
+```
+
+或用界面里每条规则的「摘除启动代理」按钮。
+
+> **风险提示**：挂上 IFEO 后，任何对 `<目标>.exe` 的启动都会先经过 `HookLauncher.exe`。
+> 因此务必保证 `HookLauncher.exe` 与 `injector.dll` 已就位、且与目标位数一致；否则目标会启动失败。
+> 恢复方式就是上面的 `--uninstall`（或删除该键下的 `Debugger` 值）。
 
 ## 目录布局
 
@@ -48,21 +91,16 @@ installer/                   Inno Setup 打包脚本
 include/waf/                 公共头
   component.h                HkComponent 接口 + 静态注册宏
   config.h                   配置模型（Parse / Dump / FindRule）
+  ifeo.h                     Image File Execution Options 读写
   runtime.h                  日志、策略调用点表、调用点判定、几何查询
   yamlmini.h                 最小 YAML 子集解析器（含序列化）
-src/core/                    waf_core 静态库：yamlmini / runtime / config
+src/core/                    waf_core：yamlmini / runtime / config / ifeo
+src/app/                     WorkAreaFullscreen.exe（界面：配置编辑 + 启动代理管理）
+src/launcher/                HookLauncher.exe（启动代理）
 src/hook/                    injector.dll
   dllmain.cpp                读配置 -> 匹配进程 -> 安装组件 hook
   components/                一个组件一个文件
-    get_monitor_info.cpp     位置：rcMonitor -> rcWork
-    get_device_caps.cpp      尺寸来源一：desktop_mode
-    enum_display_settings.cpp 尺寸来源二：显示模式列表
-src/app/                     WorkAreaFullscreen.exe
-  main.cpp                   入口与命令行
-  app.cpp                    窗口 + D3D11 + ImGui + 托盘 + 配置读写/热重载
-  ui.cpp                     ImGui 界面
-  watch.cpp                  进程扫描、延迟注入、单次注入模式
-tests/                       yamlmini_test / probe_host / 集成自检脚本
+tests/                       yamlmini_test / probe_host / 启动代理集成自检
 ```
 
 ## 构建
@@ -81,38 +119,10 @@ cmake --build --preset release
 ctest --preset release
 ```
 
-## 运行
-
-```powershell
-# 常驻（无参数）：界面 + 托盘，按配置监听并注入
-.\build\release\WorkAreaFullscreen.exe
-
-# 单次：按配置启动某个程序并注入，等它退出
-.\build\release\WorkAreaFullscreen.exe --config config\config.yaml --inject <game.exe>
-```
-
-| 开关 | 说明 |
-| --- | --- |
-| `--config <path>` | 指定配置文件，默认 `%APPDATA%\WorkAreaFullscreen\config.yaml` |
-| `--inject <exe>` | 单次注入模式 |
-| `--delay <ms>` | 覆盖配置里的注入延迟 |
-
-界面左上角是「保存 / 重新加载 / 收进托盘」，左侧编辑全局设置与规则，右侧是已注入进程与日志。
-关闭窗口默认收进托盘（可在配置或界面里关掉）。托盘右键：显示主窗口 / 重新加载配置 / 退出。
-宿主日志写到 `%TEMP%\WorkAreaFullscreen.log`，被注入模块的日志写到
-`%TEMP%\WorkAreaFullscreen-hook.log`（两者分开，便于同时排查）。
-
-**注入时机**：目标启动瞬间注入会让部分引擎崩溃，因此默认在其启动后 300 ms 注入
-（`inject_delay_ms` 可调）。
-
-**权限**：若目标以管理员身份运行，本程序也需以管理员身份启动，否则 `OpenProcess` 会被拒绝。
-
 ## 配置
 
 ```yaml
-enabled: true              # 全局开关
-inject_delay_ms: 300       # 目标进程“启动后”多少毫秒注入
-scan_interval_ms: 200      # 进程扫描间隔
+enabled: true              # 总开关（HookLauncher 注入时读）
 
 ui:
   minimize_to_tray: true   # 关闭窗口时收进托盘
@@ -136,66 +146,23 @@ targets:
         scope: callsite
       EnumDisplaySettingsW:
         enabled: true
-        scope: global           # 策略表里没有该组件的调用点，只能按全局处理
+        scope: global
     safety:
-      verify_callsite: true     # 注入前校验调用点字节与 IAT 槽
+      verify_callsite: true     # 注入前校验调用点指令形态
 ```
-
-**注入时机**：`inject_delay_ms` 是**目标进程启动后**多少毫秒注入，不是"发现后"再等多久。
-目标的显示初始化（SDL 枚举显示器、缓存 desktop_mode）只发生一次，注入晚于它就只能靠
-`EnumDisplaySettingsW` + `WM_DISPLAYCHANGE` 补救。hook 日志里会记录注入时目标已运行多少毫秒，
-便于判断是否赶上窗口期。
-
-**目标发现**：默认按 `scan_interval_ms` 轮询进程列表，本机实测 200 ms 间隔的发现延迟约 120 ms。
-另可接入 WMI 的 `Win32_ProcessStartTrace` 进程创建事件（需要管理员权限），但它要经 WMI 服务
-中转，本机实测延迟 0.6~1.7 秒，比轮询还慢；因此两者并行、以先到者为准，WMI 只作补充。
-界面的「运行状态」会显示当前生效的监听方式。
-
-### 启动代理（IFEO）：把注入提前到目标执行第一条指令之前
-
-上面那套仍然只是"比谁快"——发现再快，从发现到 DLL 真正加载也有几百毫秒，而目标的显示
-初始化可能就在这几百毫秒内完成（实测出现过目标已运行 695 ms 才注入、`GetDeviceCaps`
-一次都没被调用的情况）。要彻底消除这个竞速，用 IFEO + 启动代理：
-
-```
-任意程序启动 <目标>.exe
-      │  Windows IFEO（HKLM\...\Image File Execution Options\<目标>.exe 的 Debugger 值）
-      ▼
-HookLauncher.exe
-      │  以调试器身份创建真正的 <目标>.exe（DEBUG_ONLY_THIS_PROCESS）
-      ▼
-   目标主线程停在系统断点，尚未执行任何用户代码
-      │  注入 injector.dll
-      ▼
-ContinueDebugEvent 放行，目标继续初始化
-```
-
-安装/卸载（需要管理员权限）：
-
-```powershell
-HookLauncher.exe --install   <目标.exe>   # 写 IFEO Debugger 值
-HookLauncher.exe --uninstall <目标.exe>   # 删除该值
-```
-
-安装包里的「为 stellaris.exe 启用启动代理」任务等价于上面第一条命令，卸载时自动清理。
-
-两点说明：
-
-- 用 `DEBUG_ONLY_THIS_PROCESS` 不仅是让目标停在入口点，也避免"带 DEBUG 标志的
-  CreateProcess 再走一遍 IFEO"造成递归。
-- 实测注入完成于目标启动后 **19 ms**（常规路径是 400~700 ms），稳定早于显示初始化。
 
 **`scope`**
 
 - `callsite`：只对 `strategy` 表里记录的该组件调用点生效，其余调用原样放行（生产配置）。
-- `global`：对该 API 的所有调用生效（集成自检用，便于在非目标 exe 上验证改写逻辑）。
+- `global`：对该 API 的所有调用生效。
 
-**`verify_callsite`** 按 `strategy` 的 RVA 读取目标映像，确认那里是一条
-`call qword ptr [dll!proc]` 且 IAT 槽已解析到同一函数。exe 版本变化导致 RVA 失配时
-直接回退为不改写，不会写坏进程；内存读取以 SEH 保护。
+**`verify_callsite`** 按 `strategy` 的 RVA 检查该处是否为一条 `call qword ptr [rip+disp32]`；
+版本变化导致 RVA 失配时直接回退为不改写，不会写坏进程。内存读取以 SEH 保护。
 
-**热重载**：外部编辑并保存配置文件后，程序在下次检查（约 1 s）时自动重载。
-若界面里有未保存修改，则忽略外部版本，避免覆盖你正在编辑的内容。
+界面里每条规则都有「挂载 / 摘除启动代理」按钮，挂载状态直接读注册表，不写进配置文件。
+
+**热重载**：外部编辑并保存配置文件后，程序在下次检查（约 1 s）时自动重载；界面里有未保存
+修改时忽略外部版本。配置只在**下次注入**时生效，已经注入的进程需要重启目标。
 
 ## 扩展一个 hook 组件
 
@@ -205,24 +172,18 @@ HookLauncher.exe --uninstall <目标.exe>   # 删除该值
 4. 在 `CMakeLists.txt` 的 `injector` 目标里加上该源文件。
 
 宿主遍历注册表读配置，不需要改动。界面里的「新增组件」列表来自 `injector.dll` 导出的组件目录
-（`HkComponentCount` / `HkComponentName` / `HkComponentDefaultConfig`），因此界面不硬编码任何
-组件知识 —— 新组件写好 `defaultConfig` 后会自动出现在列表里。
-
-UI 里「添加规则」按下时使用 `waf::NewDefaultRule()` 的模板（当前含两个组件的默认参数）。
+（`HkComponentCount` / `HkComponentName` / `HkComponentDefaultConfig`），新组件写好
+`defaultConfig` 后会自动出现在列表里。
 
 ## 自检
 
 ```powershell
 ctest --preset release                       # YAML/配置的解析与序列化往返
-pwsh -File tests\run_integration.ps1         # --inject 单次注入 probe_host，断言改写生效
-pwsh -File tests\run_watch_test.ps1          # 常驻宿主轮询 -> 延迟 -> 自动注入（会短暂弹窗）
+pwsh -File tests\run_launcher_test.ps1       # 用启动代理启动 probe_host 并验证注入与改写
 ```
 
-`run_integration.ps1` 通过 `--inject` 让主程序对 `probe_host.exe` 做一次真实注入，断言：
-注入后 `rcMonitor` 等于注入前的 `rcWork`，且 `GetDeviceCaps(HORZRES/VERTRES)` 等于工作区宽高。
-
-`run_watch_test.ps1` 走的是后台那条路径：启动常驻宿主，再启动 `probe_host.exe`，
-断言宿主在扫描间隔内发现目标、等待 `inject_delay_ms` 后完成注入并装好全部组件。
+`run_launcher_test.ps1` 走的就是生产路径：`HookLauncher` 启动目标 → 断言注入时的目标运行时间
+（应当是个位/十位毫秒）→ 断言 `rcMonitor` 被改写为 `rcWork`、且 SDL 居中结果等于工作区。
 
 ## 打包
 
@@ -231,5 +192,6 @@ cmake --preset release; cmake --build --preset release
 ISCC.exe installer\WorkAreaFullscreen.iss
 ```
 
-产物为 `dist\WorkAreaFullscreen-Setup-<版本>.exe`。安装包内含主程序、`injector.dll` 与
-示例配置，可选开机自启与桌面快捷方式；用户配置存放在 `%APPDATA%`，卸载时保留。
+产物为 `dist\WorkAreaFullscreen-Setup-<版本>.exe`。安装包内含三个组件与示例配置；可选任务包括
+开机自启、桌面快捷方式，以及「为 stellaris.exe 启用启动代理」（卸载时自动清理 Debugger 值）。
+用户配置存放在 `%APPDATA%`，卸载时保留。

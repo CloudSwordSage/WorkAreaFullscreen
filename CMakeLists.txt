@@ -66,12 +66,13 @@ target_link_libraries(imgui PUBLIC d3d11 dxgi d3dcompiler user32)
 target_compile_options(imgui PRIVATE /W1)
 
 # ---------------------------------------------------------------------------
-# waf_core：配置模型、YAML、运行环境（被 injector.dll 与主程序共用）
+# waf_core：配置模型、YAML、运行环境、IFEO（被 injector.dll、主程序与启动代理共用）
 # ---------------------------------------------------------------------------
 add_library(waf_core STATIC
     src/core/yamlmini.cpp
     src/core/runtime.cpp
     src/core/config.cpp
+    src/core/ifeo.cpp
 )
 target_include_directories(waf_core PUBLIC include)
 target_link_libraries(waf_core PUBLIC user32 gdi32)
@@ -93,21 +94,21 @@ set_target_properties(injector PROPERTIES
 )
 
 # ---------------------------------------------------------------------------
-# WorkAreaFullscreen.exe：常驻宿主（ImGui 界面 + 托盘 + 进程监听 + 注入）
+# WorkAreaFullscreen.exe：配置编辑器 + 启动代理管理者（不监听进程、不注入）
 # ---------------------------------------------------------------------------
 add_executable(WorkAreaFullscreen
     src/app/main.cpp
     src/app/app.cpp
     src/app/ui.cpp
-    src/app/watch.cpp
 )
-target_link_libraries(WorkAreaFullscreen PRIVATE waf_core imgui wbemuuid ole32 oleaut32)
+target_link_libraries(WorkAreaFullscreen PRIVATE waf_core imgui)
 
 # ---------------------------------------------------------------------------
 # HookLauncher.exe：启动代理
 #   配合 IFEO，在目标执行用户代码之前就把 injector.dll 注入进去，彻底摆脱注入时机问题
 # ---------------------------------------------------------------------------
 add_executable(HookLauncher src/launcher/main.cpp)
+target_link_libraries(HookLauncher PRIVATE waf_core)
 
 # ---------------------------------------------------------------------------
 # 自检（-DBUILD_TESTING=OFF 可关闭）
