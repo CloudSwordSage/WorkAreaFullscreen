@@ -130,9 +130,6 @@ ctest --preset release
 ```yaml
 enabled: true              # 总开关（HookLauncher 注入时读）
 
-ui:
-  minimize_to_tray: true   # 关闭窗口时收进托盘
-
 targets:
   - executable: stellaris.exe   # 进程映像名，不区分大小写
     enabled: true
