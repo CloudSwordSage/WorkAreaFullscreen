@@ -1,0 +1,33 @@
+# WorkAreaFullscreen 配置
+# 由界面保存时重写；手工编辑后程序会自动热重载。
+#
+# geometry          work_area = 窗口铺满工作区（保留任务栏）；monitor = 显示器整块区域
+# inject_delay_ms   目标进程启动后多少毫秒再注入。太早会让部分引擎（如群星）启动失败，
+#                   太晚则错过目标的显示初始化；按规则单独设置。
+# 启动代理的挂载状态存放在注册表（IFEO）里，不写进本文件。
+
+enabled: true
+
+targets:
+  - executable: stellaris.exe
+    enabled: true
+    strategy: sdl2-gdi
+    geometry: work_area
+    inject_delay_ms: 400
+    hooks:
+      GetMonitorInfoW:
+        enabled: true
+        fields:
+          rcMonitor: rcWork
+        scope: callsite
+      GetDeviceCaps:
+        enabled: true
+        indices:
+          - HORZRES
+          - VERTRES
+        scope: callsite
+      EnumDisplaySettingsW:
+        enabled: true
+        scope: global
+    safety:
+      verify_callsite: true

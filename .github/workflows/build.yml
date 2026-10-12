@@ -1,0 +1,63 @@
+name: build
+
+# 只在打 tag（v*）时发布 Release；平时可用手动触发验证编译。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备 MSVC x64 环境
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+        with:
+          arch: x64
+
+      - name: 配置
+        run: cmake --preset release
+
+      - name: 编译
+        run: cmake --build --preset release
+
+      - name: 自检
+        run: ctest --preset release
+
+      - name: 安装 Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: 打包安装程序
+        shell: pwsh
+        run: |
+          $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^v', '' } else { '0.0.0' }
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$ver" installer\WorkAreaFullscreen.iss
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorkAreaFullscreen-Setup
+          path: dist/*.exe
+
+      - name: 发布 Release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $files = (Get-ChildItem dist\*.exe).FullName
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $files --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag $files --title $tag --generate-notes --repo $env:GITHUB_REPOSITORY
+          }

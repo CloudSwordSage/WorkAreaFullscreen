@@ -1,0 +1,28 @@
+# 集成自检配置（tests/run_launcher_test.ps1 使用）。
+#
+# 与生产配置的差别，都是为了在非目标 exe 上验证改写逻辑本身：
+#   inject_delay_ms: 0      —— probe_host 不做显示初始化，立即注入最快
+#   scope: global           —— probe_host 的调用点不在 sdl2-gdi 策略表里
+#   verify_callsite: false  —— probe_host 不是 stellaris.exe，无法按 RVA 校验
+enabled: true
+
+targets:
+  - executable: probe_host.exe
+    enabled: true
+    strategy: sdl2-gdi
+    geometry: work_area
+    inject_delay_ms: 0
+    hooks:
+      GetMonitorInfoW:
+        enabled: true
+        fields:
+          rcMonitor: rcWork
+        scope: global
+      GetDeviceCaps:
+        enabled: true
+        indices:
+          - HORZRES
+          - VERTRES
+        scope: global
+    safety:
+      verify_callsite: false

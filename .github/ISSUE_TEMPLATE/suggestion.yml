@@ -1,0 +1,23 @@
+name: 建议
+description: 对文档、界面体验或工程化的改进建议
+title: "[Suggestion] "
+body:
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: 建议内容
+      description: 想改进什么？现状如何，你希望变成怎样？
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及范围
+      options:
+        - 文档
+        - 界面体验
+        - 配置格式
+        - 项目结构 / 工程化
+        - 其他
+    validations:
+      required: true
