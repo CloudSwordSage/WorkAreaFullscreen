@@ -1,14 +1,11 @@
-// app.h - WorkAreaFullscreen 的状态与接口。
+// app.h - WorkAreaFullscreen：配置编辑器 + 启动代理（IFEO）管理。
 //
-// 本程序只做两件事：编辑配置、把“启动代理”（IFEO）挂到目标上。真正的注入由
-// HookLauncher.exe 在目标执行第一条指令之前完成，本程序不监听进程、不注入。
+// 本程序不监听进程、不注入；注入由 HookLauncher.exe 在目标执行第一条指令之前完成。
 #pragma once
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-
-#include <shellapi.h>
 
 #include <string>
 #include <vector>
@@ -17,35 +14,25 @@
 
 namespace waf::app {
 
-/** 界面上的一条日志。 */
-struct LogEntry {
-    std::string time;   ///< HH:MM:SS
-    std::string text;
-};
-
 /** 一个可供界面添加的 hook 组件（来自 injector.dll 的导出目录）。 */
 struct ComponentInfo {
     std::string name;
     std::string defaultConfigYaml;   ///< 描述该组件默认参数的 YAML 片段，可为空
 };
 
-/** 程序状态；只在主线程访问（WndProc 也在主线程）。 */
+/** 程序状态；只在主线程访问。 */
 struct State {
     std::wstring configPath;                 ///< 配置文件绝对路径
     AppConfig    config;                     ///< 当前生效配置
 
     FILETIME    configStamp{};               ///< 磁盘最后写入时间，用于热重载判定
     std::string configRaw;                   ///< 磁盘原文，避免用内容相同的时间戳重载
-    bool        configDirty = false;         ///< 界面有未保存修改
-
-    std::vector<LogEntry> log;
-    bool            showWindow     = true;   ///< 主窗口是否可见（false = 收在托盘）
-    bool            requestExit    = false;
-    ULONGLONG       lastCheckTick  = 0;      ///< 配置热重载的检查节流
-    NOTIFYICONDATAW nid{};
+    bool        configDirty   = false;       ///< 界面有未保存修改
+    bool        requestExit   = false;
+    ULONGLONG   lastCheckTick = 0;           ///< 配置热重载的检查节流
 };
 
-/** 宽字符串转 UTF-8（界面与日志显示用）。 */
+/** 宽字符串转 UTF-8（界面显示用）。 */
 inline std::string Narrow(const std::wstring& w)
 {
     if (w.empty()) return std::string();
@@ -78,51 +65,45 @@ inline std::wstring SelfDir()
  */
 const std::vector<ComponentInfo>& AvailableComponents();
 
-/** 打开 %TEMP%\WorkAreaFullscreen.log（覆盖写）；重复调用为空操作。 */
-void OpenLogFile();
-
-/** 追加一条界面日志，同时写入日志文件。 */
-void Log(State& st, const char* fmt, ...);
-
-/** 把主窗口收进托盘。 */
-void HideMainWindow(State& st);
-
 /** 配置文件不存在时写入默认配置。 @return 文件已存在（含刚创建）为 true。 */
 bool EnsureConfigFile(const std::wstring& path);
 
-// ---- 配置读写 ----
-
-/** 从磁盘读取配置并替换 st.config。 @return 失败返回 false 并记录日志。 */
+/** 从磁盘读取配置并替换 st.config。 @return 失败返回 false。 */
 bool ReloadConfig(State& st);
 
-/** 把 st.config 写回磁盘（注释头会被重写）。 @return 成功为 true。 */
+/** 把 st.config 写回磁盘。 @return 成功为 true。 */
 bool SaveConfig(State& st);
-
-// ---- 界面 ----
 
 /** 绘制一帧界面。 */
 void DrawUi(State& st);
 
-// ---- 启动代理（IFEO）----
-
 /** 本程序同目录下的启动代理路径。 */
 std::wstring LauncherPath();
 
-/** 本程序同目录下的注入模块路径。 */
-std::wstring InjectorPath();
+// ---- 启动代理（IFEO）----
+
+/** 该目标的启动代理当前是否已挂载。 */
+bool IsLaunchProxyOn(const std::string& exeName);
 
 /**
- * 为某个目标挂上或摘掉启动代理。
+ * 挂载或摘除某目标的启动代理。
+ *
+ * 当前进程已是管理员时直接写注册表；否则用 ShellExecuteEx + runas 提权，由本程序带
+ * `--ifeo-install` / `--ifeo-uninstall` 再执行一次，并等待其结束。提权被取消或执行
+ * 失败时会弹出对话框说明。
  *
  * @param exeName 映像名，如 stellaris.exe。
- * @param on      true 安装，false 卸载。
- * @return 成功为 true；失败原因会写进 st.log。
+ * @param on      true 挂载，false 摘除。
+ * @return 最终成功为 true。
  */
-bool SetLaunchProxy(State& st, const std::string& exeName, bool on);
+bool ApplyLaunchProxy(const std::string& exeName, bool on);
+
+/** 提权模式入口：由 ApplyLaunchProxy 拉起，执行完即退出。 @return 进程退出码。 */
+int RunIfeoCommand(const std::string& exeName, bool on);
 
 // ---- 入口 ----
 
-/** 主界面：窗口 + 托盘 + 配置编辑 + 启动代理管理。 @return 进程退出码。 */
+/** 主界面：配置编辑 + 启动代理管理。 @return 进程退出码。 */
 int RunUi(const std::wstring& configPath);
 
 } // namespace waf::app

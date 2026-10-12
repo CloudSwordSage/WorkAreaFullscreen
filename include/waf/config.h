@@ -30,8 +30,7 @@ struct TargetRule {
 
 /** 全局配置。 */
 struct AppConfig {
-    bool                    enabled        = true;   ///< 总开关（HookLauncher 注入时读）
-    bool                    minimizeToTray = true;   ///< 关闭窗口时收进托盘而非退出
+    bool                    enabled = true;   ///< 总开关（HookLauncher 注入时读）
     std::vector<TargetRule> targets;
 
     /**

@@ -34,7 +34,7 @@ bool AppConfig::Parse(const std::string& text, AppConfig& out, std::string& err)
     out.enabled        = BoolOf(root.find("enabled"), true);
 
     const yamlmini::Node* ui = root.find("ui");
-    out.minimizeToTray = BoolOf(ui ? ui->find("minimize_to_tray") : nullptr, true);
+    (void)ui;   // 暂无可配置的界面项（托盘已移除）
 
     const yamlmini::Node* targets = root.find("targets");
     if (targets) {
@@ -78,11 +78,6 @@ std::string AppConfig::Dump(const std::string& header) const
     yamlmini::Node root;
     root.kind = yamlmini::Node::Map;
     root.map.emplace_back("enabled", Scalar(B(enabled)));
-
-    yamlmini::Node ui;
-    ui.kind = yamlmini::Node::Map;
-    ui.map.emplace_back("minimize_to_tray", Scalar(B(minimizeToTray)));
-    root.map.emplace_back("ui", std::move(ui));
 
     yamlmini::Node targets;
     targets.kind = yamlmini::Node::Seq;

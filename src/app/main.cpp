@@ -1,11 +1,11 @@
-// main.cpp - 入口：配置编辑器 + 启动代理管理者。
-//
-// 实际注入由 HookLauncher.exe 在目标执行第一条指令之前完成，本程序不监听进程、不注入。
+// main.cpp - 入口：配置编辑器 + 启动代理管理；也承担提权后的 IFEO 写入。
 #include "app.h"
 
 #include <stdio.h>
 
 #include <string>
+
+#include "waf/ifeo.h"
 
 namespace {
 
@@ -34,8 +34,16 @@ std::wstring ToAbsolute(const std::wstring& path)
 
 int wmain(int argc, wchar_t** argv)
 {
-    std::wstring configPath;
+    // 提权模式：ApplyLaunchProxy 用 runas 拉起本程序并把操作带过来，做完即退。
+    if (argc >= 3) {
+        const std::wstring first = argv[1];
+        if (first == L"--ifeo-install" || first == L"--ifeo-uninstall") {
+            const std::string exeName = waf::ExeNameOf(waf::app::Narrow(argv[2]));
+            return waf::app::RunIfeoCommand(exeName, first == L"--ifeo-install");
+        }
+    }
 
+    std::wstring configPath;
     for (int i = 1; i < argc; ++i) {
         const std::wstring a = argv[i];
         if (a == L"--config" && i + 1 < argc) {

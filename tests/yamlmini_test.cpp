@@ -125,7 +125,6 @@ static void TestScalarsAndQuotes()
 static void TestAppConfig()
 {
     waf::AppConfig cfg = waf::DefaultConfig();
-    cfg.minimizeToTray = false;
 
     const std::string text = cfg.Dump("# header\n");
     assert(text.compare(0, 9, "# header\n") == 0);
@@ -135,7 +134,7 @@ static void TestAppConfig()
     if (!waf::AppConfig::Parse(text, back, err)) printf("config parse: %s\n", err.c_str());
     assert(waf::AppConfig::Parse(text, back, err));
 
-    assert(back.minimizeToTray == false);
+    assert(back.enabled == true);
     assert(back.targets.size() == 1);
     assert(back.targets[0].executable == "stellaris.exe");
     assert(back.targets[0].geometry == "work_area");
