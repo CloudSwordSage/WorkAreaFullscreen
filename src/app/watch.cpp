@@ -1,4 +1,4 @@
-// watch.cpp - 目标进程扫描、后台延迟注入，以及命令行单次注入模式。
+// watch.cpp - 目标进程发现（WMI 进程创建事件，轮询作回退）、后台延迟注入，以及单次注入模式。
 //
 // 注入本身（OpenProcess / VirtualAllocEx / CreateRemoteThread / 等 LoadLibraryW）会阻塞
 // 数百毫秒到数秒，目标若是正在启动的游戏还可能卡在加载器锁上，因此常驻模式下注入一律
@@ -6,8 +6,10 @@
 #include "app.h"
 
 #include <tlhelp32.h>
+#include <wbemidl.h>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -19,6 +21,116 @@ namespace {
 // 后台线程写、主线程取，用互斥量保护。
 std::mutex                g_resultMutex;
 std::vector<InjectResult> g_results;
+
+// ---- WMI 进程创建事件 ----
+//
+// Win32_ProcessStartTrace 是内核 ETW 事件在 WMI 里的投影：目标进程一创建就回调，不必轮询，
+// 也就不会像固定间隔扫描那样“晚发现”而错过目标的显示初始化窗口（实测错过时晚到 961 ms）。
+// 该事件需要管理员权限；订阅失败时退回轮询扫描。
+struct ProcessStartEvent {
+    DWORD       pid = 0;
+    std::string exe;
+};
+
+std::mutex                     g_eventMutex;
+std::vector<ProcessStartEvent> g_events;        // 订阅线程写、主线程取
+std::vector<std::string>       g_watcherNotes;  // 订阅状态提示，交主线程记日志
+std::atomic<bool>              g_watcherReady{false};
+
+DWORD WINAPI WmiWatcherThread(LPVOID)
+{
+    auto note = [](const char* text) {
+        std::lock_guard<std::mutex> lk(g_eventMutex);
+        g_watcherNotes.push_back(text);
+    };
+
+    const HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hrInit) && hrInit != RPC_E_CHANGED_MODE) {
+        note("WMI：CoInitializeEx 失败，回退轮询扫描");
+        return 0;
+    }
+    // 同进程只能设置一次；已被别处设置过会返回 RPC_E_TOO_LATE，忽略即可。
+    // 认证级别必须是 PacketPrivacy：Win32_ProcessStartTrace 属于内核 ETW 事件，
+    // 较低的 CALL/Default 级别会被拒绝（实测同一台机器上 PowerShell 能订阅、这里失败）。
+    CoInitializeSecurity(nullptr, -1, nullptr, nullptr, RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+                         RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_NONE, nullptr);
+
+    IWbemLocator* locator = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_IWbemLocator, reinterpret_cast<void**>(&locator))) || !locator) {
+        note("WMI：CoCreateInstance 失败，回退轮询扫描");
+        return 0;
+    }
+
+    BSTR           ns       = SysAllocString(L"ROOT\\CIMV2");
+    IWbemServices* services = nullptr;
+    const HRESULT  hrConnect = locator->ConnectServer(ns, nullptr, nullptr, nullptr, 0,
+                                                      nullptr, nullptr, &services);
+    SysFreeString(ns);
+    locator->Release();
+    if (FAILED(hrConnect) || !services) {
+        note("WMI：连接 ROOT\\CIMV2 失败，回退轮询扫描");
+        return 0;
+    }
+
+    CoSetProxyBlanket(services, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, nullptr,
+                      RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_NONE);
+
+    BSTR                  lang   = SysAllocString(L"WQL");
+    BSTR                  query  = SysAllocString(L"SELECT * FROM Win32_ProcessStartTrace");
+    IEnumWbemClassObject* events = nullptr;
+    const HRESULT         hrSub  = services->ExecNotificationQuery(
+        lang, query, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &events);
+    SysFreeString(lang);
+    SysFreeString(query);
+    services->Release();
+
+    if (FAILED(hrSub) || !events) {
+        if (hrSub == WBEM_E_ACCESS_DENIED) {
+            note("WMI：订阅进程创建事件被拒绝（该事件需要管理员权限），回退轮询扫描；"
+                 "以管理员身份运行可获得零延迟的进程发现");
+        } else {
+            char buf[192];
+            _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+                        "WMI：订阅 Win32_ProcessStartTrace 失败（hr=0x%08lX），回退轮询扫描",
+                        static_cast<unsigned>(hrSub));
+            note(buf);
+        }
+        return 0;
+    }
+
+    g_watcherReady = true;
+    note("已订阅 Win32_ProcessStartTrace 进程创建事件");
+
+    for (;;) {
+        IWbemClassObject* obj = nullptr;
+        ULONG             got = 0;
+        if (FAILED(events->Next(WBEM_INFINITE, 1, &obj, &got)) || got == 0) break;
+
+        ProcessStartEvent ev;
+        VARIANT           vName, vPid;
+        VariantInit(&vName);
+        VariantInit(&vPid);
+        if (SUCCEEDED(obj->Get(L"ProcessName", 0, &vName, nullptr, nullptr)) && vName.vt == VT_BSTR)
+            ev.exe = Narrow(std::wstring(vName.bstrVal));
+        if (SUCCEEDED(obj->Get(L"ProcessID", 0, &vPid, nullptr, nullptr))) {
+            if (vPid.vt == VT_I4)       ev.pid = static_cast<DWORD>(vPid.lVal);
+            else if (vPid.vt == VT_UI4) ev.pid = static_cast<DWORD>(vPid.ulVal);
+        }
+        VariantClear(&vName);
+        VariantClear(&vPid);
+        obj->Release();
+
+        if (ev.pid == 0 || ev.exe.empty()) continue;
+        std::lock_guard<std::mutex> lk(g_eventMutex);
+        g_events.push_back(std::move(ev));
+    }
+
+    events->Release();
+    g_watcherReady = false;
+    note("WMI 事件订阅已结束，回退轮询扫描");
+    return 0;
+}
 
 std::vector<DWORD> FindProcessesByName(const std::string& name)
 {
@@ -143,6 +255,46 @@ void RunInjectAsync(DWORD pid, const std::wstring& dllPath, const std::string& e
     }).detach();
 }
 
+/** 为一次“目标进程已创建”排定注入：匹配规则、按启动时刻算延迟、入队。 */
+void QueueInjection(State& st, const std::string& exeName, DWORD pid)
+{
+    if (!st.config.enabled) return;
+    if (!st.config.FindRule(exeName)) return;
+
+    const bool known =
+        std::find(st.injectedPids.begin(), st.injectedPids.end(), pid) != st.injectedPids.end() ||
+        std::find(st.injecting.begin(), st.injecting.end(), pid) != st.injecting.end() ||
+        std::any_of(st.pending.begin(), st.pending.end(),
+                    [pid](const PendingInject& p) { return p.pid == pid; });
+    if (known) return;
+
+    // 延迟以“目标进程启动时刻”为基准，而不是“发现的时刻”：目标往往在显示初始化时就把
+    // 分辨率等信息缓存好了，晚注入就再也改不到窗口尺寸。
+    const ULONGLONG nowTick = GetTickCount64();
+    ULONGLONG       elapsed = 0;
+    const bool      haveStart = ProcessStartFileTimeMs(pid, elapsed);
+    if (haveStart) {
+        const ULONGLONG nowFt = NowFileTimeMs();
+        elapsed = (nowFt > elapsed) ? (nowFt - elapsed) : 0;
+    }
+
+    LONGLONG remain = static_cast<LONGLONG>(st.config.injectDelayMs) -
+                      static_cast<LONGLONG>(haveStart ? elapsed : 0);
+    if (remain < 0) remain = 0;
+
+    PendingInject pj;
+    pj.pid = pid;
+    pj.exe = exeName;
+    pj.due = nowTick + static_cast<ULONGLONG>(remain);
+    st.pending.push_back(pj);
+
+    if (haveStart)
+        Log(st, "发现 %s（PID %lu，已运行 %llu ms），将在其启动后 %d ms 注入",
+            exeName.c_str(), pid, elapsed, st.config.injectDelayMs);
+    else
+        Log(st, "发现 %s（PID %lu），%d ms 后注入", exeName.c_str(), pid, st.config.injectDelayMs);
+}
+
 } // namespace
 
 void WatchStep(State& st)
@@ -159,43 +311,32 @@ void WatchStep(State& st)
 
     for (const auto& t : st.config.targets) {
         if (!t.enabled || t.executable.empty()) continue;
-
-        for (DWORD pid : FindProcessesByName(t.executable)) {
-            const bool known =
-                std::find(st.injectedPids.begin(), st.injectedPids.end(), pid) != st.injectedPids.end() ||
-                std::find(st.injecting.begin(), st.injecting.end(), pid) != st.injecting.end() ||
-                std::any_of(st.pending.begin(), st.pending.end(),
-                            [pid](const PendingInject& p) { return p.pid == pid; });
-            if (known) continue;
-
-            // 延迟以“目标进程启动时刻”为基准，而不是“发现的时刻”：
-            // 目标往往在 SDL 初始化时就缓存了显示信息，晚注入就再也改不到窗口尺寸了。
-            const ULONGLONG nowTick = GetTickCount64();
-            ULONGLONG       elapsed = 0;
-            const bool      haveStart = ProcessStartFileTimeMs(pid, elapsed);
-            if (haveStart) {
-                const ULONGLONG nowFt = NowFileTimeMs();
-                elapsed = (nowFt > elapsed) ? (nowFt - elapsed) : 0;
-            }
-
-            LONGLONG remain = static_cast<LONGLONG>(st.config.injectDelayMs) -
-                              static_cast<LONGLONG>(haveStart ? elapsed : 0);
-            if (remain < 0) remain = 0;
-
-            PendingInject pj;
-            pj.pid = pid;
-            pj.exe = t.executable;
-            pj.due = nowTick + static_cast<ULONGLONG>(remain);
-            st.pending.push_back(pj);
-
-            if (haveStart)
-                Log(st, "发现 %s（PID %lu，已运行 %llu ms），将在其启动后 %d ms 注入",
-                    t.executable.c_str(), pid, elapsed, st.config.injectDelayMs);
-            else
-                Log(st, "发现 %s（PID %lu），%d ms 后注入",
-                    t.executable.c_str(), pid, st.config.injectDelayMs);
-        }
+        for (DWORD pid : FindProcessesByName(t.executable)) QueueInjection(st, t.executable, pid);
     }
+}
+
+void CollectProcessEvents(State& st)
+{
+    std::vector<ProcessStartEvent> events;
+    std::vector<std::string>       notes;
+    {
+        std::lock_guard<std::mutex> lk(g_eventMutex);
+        events.swap(g_events);
+        notes.swap(g_watcherNotes);
+    }
+    for (const auto& n : notes) Log(st, "%s", n.c_str());
+    for (const auto& e : events) QueueInjection(st, e.exe, e.pid);
+}
+
+bool ProcessWatcherActive()
+{
+    return g_watcherReady.load();
+}
+
+void StartProcessWatcher(State& st)
+{
+    HANDLE t = CreateThread(nullptr, 0, WmiWatcherThread, nullptr, 0, nullptr);
+    if (t) CloseHandle(t);
 }
 
 void ProcessPendingInjections(State& st)

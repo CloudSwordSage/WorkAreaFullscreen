@@ -455,6 +455,7 @@ int RunUi(const std::wstring& configPath)
     CreateTray(st);
     UpdateTrayTip(st);
     Log(st, "WorkAreaFullscreen 已启动");
+    StartProcessWatcher(st);
 
     while (!st.requestExit) {
         MSG msg;
@@ -469,7 +470,10 @@ int RunUi(const std::wstring& configPath)
             st.lastCheckTick = now;
             CheckConfigReload(st);
         }
+        CollectProcessEvents(st);           // WMI 事件（含订阅状态提示）
         if (st.config.enabled) {
+            // 轮询始终保留：WMI 事件要经 WMI 服务中转，实测有 0.6~1.7 秒抖动，比按配置间隔
+            // 直接扫描还慢；两者并行，谁先发现谁排入队列（QueueInjection 会去重）。
             if (now - st.lastScanTick >= (ULONGLONG)st.config.scanIntervalMs) {
                 st.lastScanTick = now;
                 WatchStep(st);

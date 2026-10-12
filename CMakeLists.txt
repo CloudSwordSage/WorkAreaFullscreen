@@ -101,7 +101,7 @@ add_executable(WorkAreaFullscreen
     src/app/ui.cpp
     src/app/watch.cpp
 )
-target_link_libraries(WorkAreaFullscreen PRIVATE waf_core imgui)
+target_link_libraries(WorkAreaFullscreen PRIVATE waf_core imgui wbemuuid ole32 oleaut32)
 
 # ---------------------------------------------------------------------------
 # 自检（-DBUILD_TESTING=OFF 可关闭）

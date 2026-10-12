@@ -143,8 +143,13 @@ targets:
 
 **注入时机**：`inject_delay_ms` 是**目标进程启动后**多少毫秒注入，不是"发现后"再等多久。
 目标的显示初始化（SDL 枚举显示器、缓存 desktop_mode）只发生一次，注入晚于它就只能靠
-`EnumDisplaySettingsW` + `WM_DISPLAYCHANGE` 补救。扫描间隔越小越能及时发现目标（默认 200 ms）；
-hook 日志里会记录注入时目标已运行了多少毫秒，便于判断是否赶上窗口期。
+`EnumDisplaySettingsW` + `WM_DISPLAYCHANGE` 补救。hook 日志里会记录注入时目标已运行多少毫秒，
+便于判断是否赶上窗口期。
+
+**目标发现**：默认按 `scan_interval_ms` 轮询进程列表，本机实测 200 ms 间隔的发现延迟约 120 ms。
+另可接入 WMI 的 `Win32_ProcessStartTrace` 进程创建事件（需要管理员权限），但它要经 WMI 服务
+中转，本机实测延迟 0.6~1.7 秒，比轮询还慢；因此两者并行、以先到者为准，WMI 只作补充。
+界面的「运行状态」会显示当前生效的监听方式。
 
 **`scope`**
 

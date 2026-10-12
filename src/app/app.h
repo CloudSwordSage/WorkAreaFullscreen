@@ -123,7 +123,16 @@ void DrawUi(State& st);
 
 // ---- 进程监听与注入 ----
 
-/** 清理已退出进程，扫描目标列表，把新发现的目标排入 pending。 */
+/** 启动进程创建事件监听（WMI，订阅失败会自动回退轮询）。进入主循环前调用一次。 */
+void StartProcessWatcher(State& st);
+
+/** 取回 WMI 事件并排定注入（主线程每帧调用），同时输出订阅状态提示。 */
+void CollectProcessEvents(State& st);
+
+/** WMI 事件订阅是否可用；false 表示当前在用轮询回退。 */
+bool ProcessWatcherActive();
+
+/** 轮询扫描目标列表（仅在 WMI 订阅不可用时作为回退）。 */
 void WatchStep(State& st);
 
 /** 处理到期的注入：提交给后台线程，本函数不做阻塞调用。 */

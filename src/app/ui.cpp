@@ -193,6 +193,13 @@ void DrawStatus(State& st)
 {
     ImGui::SeparatorText("运行状态");
     ImGui::TextWrapped("配置文件：%s", Narrow(st.configPath).c_str());
+    ImGui::Text("进程监听：轮询（间隔 %d ms）%s", st.config.scanIntervalMs,
+                ProcessWatcherActive() ? " + WMI 事件" : "");
+    if (ProcessWatcherActive())
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "WMI 进程事件订阅已生效");
+    else
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                           "提示：以管理员身份运行可额外启用 WMI 进程事件订阅");
     ImGui::Text("已注入进程：%zu", st.injectedPids.size());
     for (DWORD pid : st.injectedPids) ImGui::BulletText("PID %lu", pid);
     if (!st.pending.empty())
