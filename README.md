@@ -36,6 +36,8 @@
 既避开"太早崩溃"，也仍早于目标的显示初始化（外部轮询发现再注入最坏要到 695 ms 之后，
 `GetDeviceCaps` 一次都没被调用）。
 
+针对具体游戏的配置与原理见 `docs/`（当前：`docs/stellaris.md`）。
+
 ## 启动流程
 
 ```
@@ -65,8 +67,8 @@ cmake --build --preset release
 # 2) 打开配置界面，编辑规则
 .\build\release\WorkAreaFullscreen.exe
 
-# 3) 挂载启动代理（界面里点「挂载启动代理」，或命令行；需要管理员权限）
-.\build\release\HookLauncher.exe --install F:\SteamLibrary\steamapps\common\Stellaris\stellaris.exe
+# 3) 挂载启动代理（界面里点「挂载」，或命令行；需要管理员权限）
+.\build\release\HookLauncher.exe --install "<游戏目录>\stellaris.exe"
 
 # 4) 之后从任意方式启动游戏（含 Steam）即可
 ```
@@ -89,6 +91,7 @@ cmake --build --preset release
 CMakeLists.txt               构建脚本（MSVC x64）
 CMakePresets.json            configure/build/test 预设
 config/config.yaml           默认配置（安装包里的示例）
+docs/                        每个游戏一份针对性说明（如 stellaris.md）
 installer/                   Inno Setup 打包脚本
 include/waf/                 公共头
   component.h                HkComponent 接口 + 静态注册宏
@@ -109,11 +112,10 @@ tests/                       yamlmini_test / probe_host / 启动代理集成自�
 
 需要 MSVC x64。第三方依赖：
 
-- **MinHook**：本地源码。查找顺序 `-DHOOKKIT_MINHOOK_DIR=<dir>` → `third_party/minhook`
-  → `_mh/minhook-1.3.3`。
+- **MinHook v1.3.3**：用 `-DHOOKKIT_MINHOOK_DIR=<dir>` 指定源码目录，或把源码放到 `third_party/minhook`。
 - **Dear ImGui v1.91.5**：由 CMake `FetchContent` 自动拉取（需要网络）。
 
-在 VS Developer 环境（本仓库用 `VSDevShell { ... }`）中：
+在 VS2022 Developer 环境（如 "x64 Native Tools Command Prompt for VS 2022"）中：
 
 ```powershell
 cmake --preset release

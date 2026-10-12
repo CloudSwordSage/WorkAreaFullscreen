@@ -3,7 +3,7 @@
 // 用途：SDL 的 WIN_UpdateDisplayMode 以 GetDeviceCaps(hdc, HORZRES/VERTRES) 作为
 // display.desktop_mode，引擎再取该尺寸作为窗口宽高。改写为工作区宽高后，配合
 // rcMonitor->rcWork 的居中结果，窗口恰好铺满工作区。
-// 参见 stellaris_borderless_fullscreen_trace.md 第 9.4 节。
+// 定位过程见 docs/stellaris.md。
 #include <intrin.h>
 
 #include <string>

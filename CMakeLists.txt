@@ -16,18 +16,11 @@ add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 # ---------------------------------------------------------------------------
 # 第三方：MinHook（注入与函数挂钩）
 #
-# 查找顺序：-DHOOKKIT_MINHOOK_DIR=<dir> > third_party/minhook > _mh/minhook-1.3.3
+# 查找顺序：-DHOOKKIT_MINHOOK_DIR=<dir> > third_party/minhook
 # ---------------------------------------------------------------------------
 set(HOOKKIT_MINHOOK_DIR "" CACHE PATH "MinHook 源码目录（含 include/MinHook.h 与 src/）")
-if(NOT HOOKKIT_MINHOOK_DIR)
-    foreach(_cand
-            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook"
-            "${CMAKE_CURRENT_SOURCE_DIR}/_mh/minhook-1.3.3")
-        if(EXISTS "${_cand}/include/MinHook.h")
-            set(HOOKKIT_MINHOOK_DIR "${_cand}")
-            break()
-        endif()
-    endforeach()
+if(NOT HOOKKIT_MINHOOK_DIR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook/include/MinHook.h")
+    set(HOOKKIT_MINHOOK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook")
 endif()
 if(NOT HOOKKIT_MINHOOK_DIR OR NOT EXISTS "${HOOKKIT_MINHOOK_DIR}/include/MinHook.h")
     message(FATAL_ERROR "未找到 MinHook。用 -DHOOKKIT_MINHOOK_DIR=<dir> 指定，或放到 third_party/minhook。")

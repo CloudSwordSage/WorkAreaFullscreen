@@ -2,7 +2,7 @@
 //
 // 用途：SDL 的 WIN_GetDisplayBounds 以 rcMonitor 产出显示器边界，SDL_CreateWindow
 // 再用它解析 SDL_WINDOWPOS_CENTERED。把 rcMonitor 改写为 rcWork 即可让居中结果落在工作区。
-// 参见 stellaris_borderless_fullscreen_trace.md 第 6 与 9.4 节。
+// 定位过程见 docs/stellaris.md。
 #include <intrin.h>
 
 #include <string>

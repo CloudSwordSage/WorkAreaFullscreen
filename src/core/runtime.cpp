@@ -27,9 +27,9 @@ struct StrategyEntry {
 /**
  * 内置策略表。
  *
- * RVA 为调用指令地址，取自 stellaris_borderless_fullscreen_trace.md 第 6 与 9.4 节，
- * 绑定 stellaris.exe + 静态链接的 SDL 2.26.5 特定版本。安装前的 verify_callsite 会用
- * 指令字节与 IAT 槽复核这些值，不一致即回退，所以版本变化不会造成误改。
+ * RVA 为调用指令地址，绑定 stellaris.exe + 静态链接的 SDL 2.26.5 特定版本；定位过程与
+ * 约束见 docs/stellaris.md。安装前的 verify_callsite 会用指令字节与 IAT 槽复核这些值，
+ * 不一致即回退，所以版本变化不会造成误改。
  */
 const std::vector<StrategyEntry>& Strategies()
 {
