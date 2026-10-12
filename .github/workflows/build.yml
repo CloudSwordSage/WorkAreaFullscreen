@@ -21,10 +21,6 @@ jobs:
         with:
           arch: x64
 
-      # CMake 的 MinHook 查找顺序包含 third_party/minhook，这里放到该位置即可自动命中。
-      - name: 拉取 MinHook v1.3.3
-        run: git clone --depth 1 --branch v1.3.3 https://github.com/TsudaKageyu/minhook.git third_party/minhook
-
       - name: 配置
         run: cmake --preset release
 

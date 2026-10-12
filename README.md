@@ -111,10 +111,11 @@ tests/                       yamlmini_test / probe_host / 启动代理集成自�
 
 ## 构建
 
-需要 MSVC x64。第三方依赖：
+需要 MSVC x64。第三方依赖均由 CMake `FetchContent` 自动拉取（首次 configure 需要网络）：
 
-- **MinHook v1.3.3**：用 `-DHOOKKIT_MINHOOK_DIR=<dir>` 指定源码目录，或把源码放到 `third_party/minhook`。
-- **Dear ImGui v1.91.5**：由 CMake `FetchContent` 自动拉取（需要网络）。
+- **MinHook v1.3.3**：上游不含 CMakeLists.txt，本项目只取源码自行编译；需要指向本地已有源码时用
+  `-DFETCHCONTENT_SOURCE_DIR_MINHOOK=<dir>`。
+- **Dear ImGui v1.91.5**（Win32 + D3D11 后端）。
 
 在 VS2022 Developer 环境（如 "x64 Native Tools Command Prompt for VS 2022"）中：
 

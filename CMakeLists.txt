@@ -13,33 +13,34 @@ endif()
 add_compile_options(/utf-8 /W3 /permissive-)
 add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 
+include(FetchContent)
+
 # ---------------------------------------------------------------------------
 # 第三方：MinHook（注入与函数挂钩）
 #
-# 查找顺序：-DHOOKKIT_MINHOOK_DIR=<dir> > third_party/minhook
+# 上游不含 CMakeLists.txt（只有 VS 工程），故只取源码、自行建库；SOURCE_SUBDIR 指向不存在的
+# 子目录，以阻止 FetchContent 调用 add_subdirectory()。
+# 指向本地已有源码：-DFETCHCONTENT_SOURCE_DIR_MINHOOK=<dir>
 # ---------------------------------------------------------------------------
-set(HOOKKIT_MINHOOK_DIR "" CACHE PATH "MinHook 源码目录（含 include/MinHook.h 与 src/）")
-if(NOT HOOKKIT_MINHOOK_DIR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook/include/MinHook.h")
-    set(HOOKKIT_MINHOOK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook")
-endif()
-if(NOT HOOKKIT_MINHOOK_DIR OR NOT EXISTS "${HOOKKIT_MINHOOK_DIR}/include/MinHook.h")
-    message(FATAL_ERROR "未找到 MinHook。用 -DHOOKKIT_MINHOOK_DIR=<dir> 指定，或放到 third_party/minhook。")
-endif()
-message(STATUS "MinHook: ${HOOKKIT_MINHOOK_DIR}")
+FetchContent_Declare(minhook
+    GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
+    GIT_TAG        v1.3.3
+    SOURCE_SUBDIR  no-cmake
+)
+FetchContent_MakeAvailable(minhook)
 
 add_library(minhook STATIC
-    "${HOOKKIT_MINHOOK_DIR}/src/buffer.c"
-    "${HOOKKIT_MINHOOK_DIR}/src/hook.c"
-    "${HOOKKIT_MINHOOK_DIR}/src/trampoline.c"
-    "${HOOKKIT_MINHOOK_DIR}/src/hde/hde64.c"
-    "${HOOKKIT_MINHOOK_DIR}/src/hde/hde32.c"
+    "${minhook_SOURCE_DIR}/src/buffer.c"
+    "${minhook_SOURCE_DIR}/src/hook.c"
+    "${minhook_SOURCE_DIR}/src/trampoline.c"
+    "${minhook_SOURCE_DIR}/src/hde/hde64.c"
+    "${minhook_SOURCE_DIR}/src/hde/hde32.c"
 )
-target_include_directories(minhook PUBLIC "${HOOKKIT_MINHOOK_DIR}/include")
+target_include_directories(minhook PUBLIC "${minhook_SOURCE_DIR}/include")
 
 # ---------------------------------------------------------------------------
 # 第三方：Dear ImGui（界面），Win32 + D3D11 后端
 # ---------------------------------------------------------------------------
-include(FetchContent)
 FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
     GIT_TAG        v1.91.5
