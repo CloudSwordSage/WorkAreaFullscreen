@@ -24,6 +24,7 @@ struct TargetRule {
     bool                     enabled = true;
     std::string              strategy = "sdl2-gdi";   ///< 适配策略（提供调用点 RVA 表）
     std::string              geometry = "work_area";  ///< "work_area" | "monitor"
+    int                      injectDelayMs = 400;     ///< 目标启动后多少毫秒再注入（0 = 尽可能早）
     bool                     verifyCallsite = true;   ///< 注入前校验调用点字节
     std::vector<HookSetting> hooks;
 };

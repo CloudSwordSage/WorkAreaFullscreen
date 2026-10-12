@@ -9,6 +9,7 @@
 #include "MinHook.h"
 #include "waf/component.h"
 #include "waf/config.h"
+#include "waf/config_io.h"
 #include "waf/runtime.h"
 
 namespace waf {
@@ -22,52 +23,7 @@ std::wstring CurrentExeName()
     return sep ? std::wstring(sep + 1) : std::wstring(path);
 }
 
-// 配置查找顺序：HOOKKIT_CONFIG > 与 DLL 同目录（便携部署）> %APPDATA%\WorkAreaFullscreen > %TEMP%。
-std::wstring FindConfig(HMODULE selfMod)
-{
-    wchar_t buf[MAX_PATH]{};
-    DWORD   n = GetEnvironmentVariableW(L"HOOKKIT_CONFIG", buf, MAX_PATH);
-    if (n > 0 && n < MAX_PATH) return buf;
-
-    wchar_t self[MAX_PATH]{};
-    GetModuleFileNameW(selfMod, self, MAX_PATH);
-    std::wstring dir(self);
-    const size_t sep = dir.find_last_of(L"\\/");
-    if (sep != std::wstring::npos) dir.erase(sep + 1);
-    else                           dir.clear();
-
-    const std::wstring portable = dir + L"WorkAreaFullscreen.yaml";
-    if (GetFileAttributesW(portable.c_str()) != INVALID_FILE_ATTRIBUTES) return portable;
-
-    wchar_t appdata[MAX_PATH]{};
-    n = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
-    if (n > 0 && n < MAX_PATH) {
-        const std::wstring installed = std::wstring(appdata) + L"\\WorkAreaFullscreen\\config.yaml";
-        if (GetFileAttributesW(installed.c_str()) != INVALID_FILE_ATTRIBUTES) return installed;
-    }
-
-    wchar_t tmp[MAX_PATH]{};
-    GetTempPathW(MAX_PATH, tmp);
-    return std::wstring(tmp) + L"WorkAreaFullscreen.yaml";
-}
-
-bool ReadAllUtf8(const std::wstring& path, std::string& out)
-{
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return false;
-
-    const DWORD size = GetFileSize(h, nullptr);
-    if (size == INVALID_FILE_SIZE || size == 0 || size > 1u << 20) { CloseHandle(h); return false; }
-
-    out.resize(size);
-    DWORD got = 0;
-    const BOOL ok = ReadFile(h, &out[0], size, &got, nullptr);
-    CloseHandle(h);
-    if (!ok) return false;
-    out.resize(got);
-    return true;
-}
+// 配置的定位与读取统一由 waf/config_io 提供（启动代理也用同一份实现）。
 
 std::string NarrowA(const std::wstring& w)
 {
@@ -137,12 +93,22 @@ DWORD WINAPI InitThread(LPVOID param)
     HkLogOpen();
 
     const std::wstring exeName = CurrentExeName();
-    const std::wstring cfgPath = FindConfig(static_cast<HMODULE>(param));
+
+    // DLL 自身所在目录，用于便携部署时定位配置
+    wchar_t self[MAX_PATH]{};
+    GetModuleFileNameW(static_cast<HMODULE>(param), self, MAX_PATH);
+    std::wstring selfDir(self);
+    {
+        const size_t sep = selfDir.find_last_of(L"\\/");
+        selfDir = (sep == std::wstring::npos) ? std::wstring() : selfDir.substr(0, sep);
+    }
+
+    const std::wstring cfgPath = waf::FindConfigPath(selfDir);
     HkLog("target process: %s（已运行 %llu ms）", NarrowA(exeName).c_str(), TargetUptimeMs());
     HkLog("config: %s", NarrowA(cfgPath).c_str());
 
     std::string text;
-    if (!ReadAllUtf8(cfgPath, text)) {
+    if (!waf::ReadAllUtf8(cfgPath, text) || text.empty()) {
         HkLog("config missing or unreadable -> passthrough");
         return 0;
     }

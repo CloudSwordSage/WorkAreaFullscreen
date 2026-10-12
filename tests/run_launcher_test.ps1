@@ -30,12 +30,12 @@ try {
     Remove-Item Env:\HOOKKIT_CONFIG -ErrorAction SilentlyContinue
 }
 
-# ---- 1) 注入时机：HookLauncher 必须报告在目标执行用户代码前完成注入 ----
+# ---- 1) 注入时机：HookLauncher 必须报告已按配置的延迟完成注入 ----
 if (-not (Test-Path $launchLog)) { throw '启动代理没有产生日志' }
 $launchText = Get-Content $launchLog -Raw -Encoding utf8
-if ($launchText -notmatch '已在目标执行用户代码前完成注入') {
+if ($launchText -notmatch '已在目标启动后约 \d+ ms 完成注入') {
     Write-Host $launchText
-    throw '启动代理未能报告早期注入'
+    throw '启动代理未能报告注入完成'
 }
 
 # ---- 2) DLL 侧确认注入时的目标运行时间（这条路径应当是个位/十位毫秒）----
@@ -46,8 +46,9 @@ if ($hookText -notmatch 'rule matched') { throw "DLL 未匹配到规则：`n$hoo
 $uptimeMs = -1
 if ($hookText -match '已运行\s+(\d+)\s*ms') { $uptimeMs = [int]$Matches[1] }
 if ($uptimeMs -lt 0) { throw '未能从 hook 日志读到注入时的目标运行时间' }
+# probe.yaml 里 inject_delay_ms: 0，因此注入应发生在目标刚起来的很短时间内
 if ($uptimeMs -gt 300) {
-    throw "注入时机过晚：目标已运行 ${uptimeMs} ms（启动代理路径应当远早于此）"
+    throw "注入时机与配置不符：目标已运行 ${uptimeMs} ms（probe.yaml 配的是 0 ms 延迟）"
 }
 
 # ---- 3) 改写结果：SDL 居中结果必须等于工作区 ----

@@ -21,11 +21,17 @@
 #include <string>
 #include <string.h>
 
+#include "waf/config.h"
+#include "waf/config_io.h"
 #include "waf/ifeo.h"
 
 namespace {
 
-HANDLE g_log = INVALID_HANDLE_VALUE;
+HANDLE           g_log = INVALID_HANDLE_VALUE;
+CRITICAL_SECTION g_logCs;
+bool             g_logCsReady = false;
+
+constexpr int kDefaultInjectDelayMs = 400;
 
 void LogOpen()
 {
@@ -34,6 +40,8 @@ void LogOpen()
     const std::wstring path = std::wstring(tmp) + L"WorkAreaFullscreen-launcher.log";
     g_log = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
                         nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    InitializeCriticalSection(&g_logCs);
+    g_logCsReady = true;
 }
 
 void Log(const char* fmt, ...)
@@ -45,11 +53,16 @@ void Log(const char* fmt, ...)
     va_end(ap);
 
     if (g_log == INVALID_HANDLE_VALUE) return;
+
     char line[1200];
     _snprintf_s(line, sizeof(line), _TRUNCATE, "[%6llu ms] %s\r\n",
                 static_cast<unsigned long long>(GetTickCount64()), body);
+
     DWORD wrote = 0;
+    // 注入计时线程与调试事件循环都会写日志
+    if (g_logCsReady) EnterCriticalSection(&g_logCs);
     WriteFile(g_log, line, static_cast<DWORD>(strlen(line)), &wrote, nullptr);
+    if (g_logCsReady) LeaveCriticalSection(&g_logCs);
 }
 
 std::string Narrow(const std::wstring& w)
@@ -77,11 +90,10 @@ std::wstring DirOf(const std::wstring& path)
 /**
  * 注入 DLL。
  *
- * @param targetSuspended 目标是否正被调试器挂起。挂起时远程线程要等 ContinueDebugEvent 之后
- *                        才会执行，所以既不能等它结束，也不能回收 remote 缓冲区（目标稍后才会
- *                        读取其中的路径字符串）。
+ * 目标此时已处于正常（未挂起）运行状态，远程线程会立即执行，因此这里等待
+ * LoadLibraryW 结束后才回收 remote 缓冲区。
  */
-bool InjectDll(DWORD pid, const std::wstring& dllPath, bool targetSuspended, std::string& err)
+bool InjectDll(DWORD pid, const std::wstring& dllPath, std::string& err)
 {
     const DWORD access = PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
                          PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ;
@@ -111,10 +123,6 @@ bool InjectDll(DWORD pid, const std::wstring& dllPath, bool targetSuspended, std
                                              remote, 0, nullptr);
         if (!th) {
             err = "CreateRemoteThread 失败 err=" + std::to_string(GetLastError());
-        } else if (targetSuspended) {
-            // 目标被挂起：远程线程尚未执行，交给 ContinueDebugEvent 放行即可，这里立即返回
-            ok      = true;
-            freeBuf = false;
         } else {
             const DWORD w = WaitForSingleObject(th, 30000);
             if (w == WAIT_OBJECT_0) {
@@ -133,6 +141,59 @@ bool InjectDll(DWORD pid, const std::wstring& dllPath, bool targetSuspended, std
     if (freeBuf) VirtualFreeEx(proc, remote, 0, MEM_RELEASE);
     CloseHandle(proc);
     return ok;
+}
+
+// ---- 注入延迟（每条规则可配） ----
+
+/** 读配置取该目标要求的注入延迟；找不到配置或规则时用默认值。 */
+int InjectDelayFor(const std::wstring& targetPath)
+{
+    const size_t       sep  = targetPath.find_last_of(L"\\/");
+    const std::wstring base = (sep == std::wstring::npos) ? targetPath : targetPath.substr(sep + 1);
+    const std::string  exeName = Narrow(base);
+
+    const std::wstring cfgPath = waf::FindConfigPath(DirOf(SelfExePath()));
+    std::string        text;
+    if (!waf::ReadAllUtf8(cfgPath, text) || text.empty()) {
+        Log("未读到配置（%s），注入延迟用默认 %d ms", Narrow(cfgPath).c_str(), kDefaultInjectDelayMs);
+        return kDefaultInjectDelayMs;
+    }
+
+    waf::AppConfig cfg;
+    std::string    err;
+    if (!waf::AppConfig::Parse(text, cfg, err)) {
+        Log("配置解析失败：%s，注入延迟用默认 %d ms", err.c_str(), kDefaultInjectDelayMs);
+        return kDefaultInjectDelayMs;
+    }
+
+    const waf::TargetRule* rule = cfg.FindRule(exeName);
+    if (!rule) {
+        Log("配置里没有 %s 的规则，注入延迟用默认 %d ms", exeName.c_str(), kDefaultInjectDelayMs);
+        return kDefaultInjectDelayMs;
+    }
+    return rule->injectDelayMs;
+}
+
+/** 延迟注入任务：目标放行并跑起来之后，到点再注入。 */
+struct InjectJob {
+    DWORD        pid;
+    std::wstring dll;
+    int          delayMs;
+};
+
+DWORD WINAPI InjectThread(LPVOID param)
+{
+    InjectJob* job = static_cast<InjectJob*>(param);
+    if (job->delayMs > 0) Sleep(static_cast<DWORD>(job->delayMs));
+
+    std::string err;
+    // 此时目标已被放行、正在初始化，按普通远程线程方式注入
+    const bool ok = InjectDll(job->pid, job->dll, err);
+    if (ok) Log("已在目标启动后约 %d ms 完成注入", job->delayMs);
+    else    Log("注入失败：%s", err.c_str());
+
+    delete job;
+    return 0;
 }
 
 // ---- 作为调试器运行目标 ----
@@ -155,12 +216,13 @@ int RunAsDebugger(const std::wstring& target, const std::wstring& args)
         Log("CreateProcess 失败 err=%lu", GetLastError());
         return 2;
     }
-    Log("已作为调试器启动 %s（PID %lu），准备注入 %s",
-        Narrow(target).c_str(), pi.dwProcessId, Narrow(dll).c_str());
+    // 目标会先跑起来（放行初始断点后立刻开始初始化），delayMs 之后再注入。
+    // 这个延迟是必须的：在目标尚未初始化时注入会让部分引擎（例如群星）直接启动失败。
+    const int delayMs = InjectDelayFor(target);
+    Log("已作为调试器启动 %s（PID %lu），将在其启动后 %d ms 注入 %s",
+        Narrow(target).c_str(), pi.dwProcessId, delayMs, Narrow(dll).c_str());
 
-    bool   injected = false;
-    int    retries  = 0;
-    bool   firstBreakpoint = true;
+    bool        firstBreakpoint = true;
     DEBUG_EVENT ev{};
 
     for (;;) {
@@ -171,27 +233,16 @@ int RunAsDebugger(const std::wstring& target, const std::wstring& args)
         switch (ev.dwDebugEventCode) {
         case CREATE_PROCESS_DEBUG_EVENT: {
             if (ev.u.CreateProcessInfo.hFile) CloseHandle(ev.u.CreateProcessInfo.hFile);
-            std::string err;
-            // 目标此刻停在系统断点、尚未执行任何用户代码，是注入的最佳时机
-            if (InjectDll(pi.dwProcessId, dll, /*targetSuspended=*/true, err)) {
-                injected = true;
-                Log("已在目标执行用户代码前完成注入（DLL 将随放行加载）");
-            } else {
-                Log("首次注入失败：%s（等加载器跑起来再重试）", err.c_str());
-            }
+            // 起一个计时线程：到点后按普通方式注入（那时目标已被放行、正在初始化）
+            InjectJob* job = new InjectJob{ pi.dwProcessId, dll, delayMs };
+            HANDLE     th  = CreateThread(nullptr, 0, InjectThread, job, 0, nullptr);
+            if (th) CloseHandle(th);
+            else    { delete job; Log("无法创建注入计时线程"); }
             break;
         }
 
         case LOAD_DLL_DEBUG_EVENT: {
             if (ev.u.LoadDll.hFile) CloseHandle(ev.u.LoadDll.hFile);
-            if (!injected && retries < 8) {           // 仅在注入 API 本身失败时才重试
-                ++retries;
-                std::string err;
-                if (InjectDll(pi.dwProcessId, dll, /*targetSuspended=*/false, err)) {
-                    injected = true;
-                    Log("注入成功（第 %d 次尝试）", retries);
-                }
-            }
             break;
         }
 
@@ -226,7 +277,7 @@ int RunAsDebugger(const std::wstring& target, const std::wstring& args)
         const DWORD code   = exited ? ev.u.ExitProcess.dwExitCode : 0;
         ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, cont);
         if (exited) {
-            Log("目标已退出 code=%lu（注入%s）", code, injected ? "成功" : "未成功");
+            Log("目标已退出 code=%lu", code);
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
             return static_cast<int>(code);

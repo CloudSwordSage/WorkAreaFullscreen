@@ -8,7 +8,7 @@
 | 产物 | 角色 |
 | --- | --- |
 | `WorkAreaFullscreen.exe` | 配置编辑器 + 启动代理管理者。**不监听进程、不注入** |
-| `HookLauncher.exe` | 启动代理：以调试器身份启动目标，在目标执行第一条指令之前注入 |
+| `HookLauncher.exe` | 启动代理：以调试器身份启动目标，在配置的延迟之后注入 |
 | `injector.dll` | 被注入目标进程的 hook 模块，按配置改写 API 返回值 |
 
 三者必须放在同一目录。
@@ -31,9 +31,10 @@
 `WM_DISPLAYCHANGE` 让 SDL 重建 `desktop_mode` 缓存；位置则用 `GetMonitorInfoW` 把 `rcMonitor`
 换成 `rcWork`。三者一致后，居中结果正好等于 `rcWork`，窗口铺满工作区。
 
-**关键前提是注入必须早于目标的显示初始化**——这就是为什么用启动代理而不是"启动后延迟注入"：
-后者本质是在和目标赛跑，实测出现过目标已运行 695 ms 才注入、`GetDeviceCaps` 一次都没被调用的
-情况。启动代理路径实测注入于目标启动后 ~17 ms。
+**关键前提是注入要早于目标的显示初始化**——但也不能太早：实测在目标尚未完成初始化时注入，
+会让群星之类的引擎直接启动失败。所以每条规则带一个 `inject_delay_ms`，默认 400 ms，
+既避开"太早崩溃"，也仍早于目标的显示初始化（外部轮询发现再注入最坏要到 695 ms 之后，
+`GetDeviceCaps` 一次都没被调用）。
 
 ## 启动流程
 
@@ -44,14 +45,15 @@
 HookLauncher.exe
       │  以调试器身份创建真正的 <目标>.exe（DEBUG_ONLY_THIS_PROCESS）
       ▼
-   目标主线程停在系统断点，尚未执行任何用户代码
-      │  注入 injector.dll
+ContinueDebugEvent 立即放行，目标开始正常初始化
+      │  等配置要求的 inject_delay_ms（默认 400 ms）
       ▼
-ContinueDebugEvent 放行，目标继续初始化
+注入 injector.dll（远程线程 LoadLibraryW）
 ```
 
-`DEBUG_ONLY_THIS_PROCESS` 有两个作用：让目标停在入口点，以及避免带 DEBUG 标志的
-`CreateProcess` 再触发一次 IFEO 造成递归。
+`DEBUG_ONLY_THIS_PROCESS` 有两个作用：让调试器先接管启动（从而避免带 DEBUG 标志的
+`CreateProcess` 再触发一次 IFEO 造成递归），以及能在目标跑起来之后仍由我们决定注入时机。
+延迟由**独立计时线程**完成，目标在这段时间里已经正常跑完自己的初始化。
 
 ## 快速开始
 
@@ -132,6 +134,7 @@ targets:
     enabled: true
     strategy: sdl2-gdi          # 提供与目标版本绑定的调用点 RVA 表
     geometry: work_area         # work_area = rcWork；monitor = rcMonitor（不改写）
+    inject_delay_ms: 400        # 目标启动后多少毫秒再注入（每条规则可单独设）
     hooks:
       GetMonitorInfoW:
         enabled: true
@@ -183,7 +186,8 @@ pwsh -File tests\run_launcher_test.ps1       # 用启动代理启动 probe_host 
 ```
 
 `run_launcher_test.ps1` 走的就是生产路径：`HookLauncher` 启动目标 → 断言注入时的目标运行时间
-（应当是个位/十位毫秒）→ 断言 `rcMonitor` 被改写为 `rcWork`、且 SDL 居中结果等于工作区。
+与配置的 `inject_delay_ms` 相符（probe.yaml 配的是 0）→ 断言 `rcMonitor` 被改写为 `rcWork`、
+且 SDL 居中结果等于工作区。
 
 ## 打包
 

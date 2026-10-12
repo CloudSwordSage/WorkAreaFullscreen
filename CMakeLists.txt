@@ -72,6 +72,7 @@ add_library(waf_core STATIC
     src/core/yamlmini.cpp
     src/core/runtime.cpp
     src/core/config.cpp
+    src/core/config_io.cpp
     src/core/ifeo.cpp
 )
 target_include_directories(waf_core PUBLIC include)

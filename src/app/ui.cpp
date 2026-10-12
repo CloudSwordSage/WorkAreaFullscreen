@@ -108,6 +108,14 @@ void DrawTargets(State& st)
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("提供与目标版本绑定的调用点 RVA 表。");
 
+        ImGui::SetNextItemWidth(150);
+        if (ImGui::InputInt("注入延迟 (ms)", &t.injectDelayMs)) dirty = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("目标进程启动后多少毫秒再注入。\n"
+                              "太早注入会让部分引擎（如群星）直接启动失败；\n"
+                              "太晚则错过目标的显示初始化。默认 400。");
+        if (t.injectDelayMs < 0) { t.injectDelayMs = 0; dirty = true; }
+
         dirty |= ImGui::Checkbox("校验调用点", &t.verifyCallsite);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("注入前按 RVA 校验指令形态；版本不匹配时回退为不改写。");

@@ -17,6 +17,7 @@ yamlmini::Node Scalar(const std::string& v)
 const char* B(bool v) { return v ? "true" : "false"; }
 
 bool   BoolOf(const yamlmini::Node* n, bool def)          { return n ? n->toBool(def) : def; }
+int    IntOf(const yamlmini::Node* n, int def)            { return n ? n->toInt(def) : def; }
 std::string StrOf(const yamlmini::Node* n, const char* def) { return n ? n->str(def) : std::string(def); }
 
 } // namespace
@@ -48,6 +49,8 @@ bool AppConfig::Parse(const std::string& text, AppConfig& out, std::string& err)
             r.enabled    = BoolOf(t.find("enabled"), true);
             r.strategy   = StrOf(t.find("strategy"), "sdl2-gdi");
             r.geometry   = StrOf(t.find("geometry"), "work_area");
+            r.injectDelayMs = IntOf(t.find("inject_delay_ms"), 400);
+            if (r.injectDelayMs < 0) r.injectDelayMs = 0;
 
             const yamlmini::Node* safety = t.find("safety");
             r.verifyCallsite = BoolOf(safety ? safety->find("verify_callsite") : nullptr, true);
@@ -88,6 +91,7 @@ std::string AppConfig::Dump(const std::string& header) const
         tn.map.emplace_back("enabled", Scalar(B(t.enabled)));
         tn.map.emplace_back("strategy", Scalar(t.strategy));
         tn.map.emplace_back("geometry", Scalar(t.geometry));
+        tn.map.emplace_back("inject_delay_ms", Scalar(std::to_string(t.injectDelayMs)));
 
         yamlmini::Node hooks;
         hooks.kind = yamlmini::Node::Map;
