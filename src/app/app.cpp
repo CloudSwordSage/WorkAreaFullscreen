@@ -139,6 +139,8 @@ void ResizeSwapChain()
 
 void LoadFont(ImGuiIO& io)
 {
+    // 界面文本为中文，字形范围决定能否显示。简体常用字表只含 2500 字，界面里出现表外汉字
+    //（如"引擎"的"擎"）时会渲染成 '?' 占位符，因此按全量 CJK 范围加载微软雅黑。
     const wchar_t* candidates[] = {
         L"C:\\Windows\\Fonts\\msyh.ttc",
         L"C:\\Windows\\Fonts\\msyh.ttf",
@@ -148,7 +150,7 @@ void LoadFont(ImGuiIO& io)
         if (GetFileAttributesW(p) == INVALID_FILE_ATTRIBUTES) continue;
         const std::string mb = Narrow(p);
         if (io.Fonts->AddFontFromFileTTF(mb.c_str(), 18.0f, nullptr,
-                                         io.Fonts->GetGlyphRangesChineseSimplifiedCommon()))
+                                         io.Fonts->GetGlyphRangesChineseFull()))
             return;
     }
     io.Fonts->AddFontDefault();
