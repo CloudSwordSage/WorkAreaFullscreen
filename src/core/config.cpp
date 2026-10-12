@@ -45,9 +45,6 @@ namespace waf {
         out = AppConfig{};
         out.enabled = BoolOf(root.find("enabled"), true);
 
-        const yamlmini::Node * ui = root.find("ui");
-        (void)ui; // 暂无可配置的界面项（托盘已移除）
-
         const yamlmini::Node * targets = root.find("targets");
         if (targets) {
             if (targets->kind != yamlmini::Node::Seq) {
