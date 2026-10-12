@@ -26,7 +26,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; 注入其它进程需要与目标同等权限，按管理员安装可避免多数权限问题
+; 安装到 Program Files 需要管理员权限；运行时的提权由程序按需自行请求
 PrivilegesRequired=admin
 
 [Languages]
@@ -35,7 +35,6 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.i
 [Tasks]
 Name: "autostart";   Description: "开机自动启动"; GroupDescription: "附加任务:"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"; Flags: unchecked
-Name: "ifeo";        Description: "为 stellaris.exe 启用启动代理（在游戏执行第一条指令前注入，最可靠的注入时机）"; GroupDescription: "附加任务:"; Flags: unchecked
 
 [Files]
 Source: "..\build\release\{#AppExeName}";  DestDir: "{app}"; Flags: ignoreversion
@@ -53,10 +52,6 @@ Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: deskt
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExeName}"""; \
     Flags: uninsdeletevalue; Tasks: autostart
-; 启动代理：让 stellaris.exe 的每次启动都先经过 HookLauncher（卸载时自动移除该值）
-Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\stellaris.exe"; \
-    ValueType: string; ValueName: "Debugger"; ValueData: """{app}\{#LauncherName}"""; \
-    Flags: uninsdeletevalue; Tasks: ifeo
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent

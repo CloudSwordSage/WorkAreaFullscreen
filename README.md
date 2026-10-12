@@ -198,5 +198,5 @@ ISCC.exe installer\WorkAreaFullscreen.iss
 ```
 
 产物为 `dist\WorkAreaFullscreen-Setup-<版本>.exe`。安装包内含三个组件与示例配置；可选任务包括
-开机自启、桌面快捷方式，以及「为 stellaris.exe 启用启动代理」（卸载时自动清理 Debugger 值）。
+开机自启与桌面快捷方式。启动代理（IFEO）不随安装挂载，安装后在界面里按目标按需挂载。
 用户配置存放在 `%APPDATA%`，卸载时保留。
