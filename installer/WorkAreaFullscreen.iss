@@ -3,7 +3,9 @@
 ; 依赖先完成 CMake 构建：cmake --preset release; cmake --build --preset release
 
 #define AppName        "WorkAreaFullscreen"
+#ifndef AppVersion
 #define AppVersion     "0.1.0"
+#endif
 #define AppPublisher   "WorkAreaFullscreen"
 #define AppExeName     "WorkAreaFullscreen.exe"
 #define InjectDllName  "injector.dll"
