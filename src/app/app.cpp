@@ -1,7 +1,7 @@
 // app.cpp - 主界面：Win32 窗口 + D3D11 + ImGui、配置读写与热重载、启动代理管理。
 //
 // 本程序不监听进程、也不注入；注入由 HookLauncher.exe 在目标执行第一条指令之前完成。
-#include "app.h"
+#include "app/app.h"
 
 #include <d3d11.h>
 #include <shellapi.h>

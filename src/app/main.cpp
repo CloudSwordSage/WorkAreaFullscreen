@@ -1,5 +1,5 @@
 // main.cpp - 入口：配置编辑器 + 启动代理管理；也承担提权后的 IFEO 写入。
-#include "app.h"
+#include "app/app.h"
 
 #include <stdio.h>
 

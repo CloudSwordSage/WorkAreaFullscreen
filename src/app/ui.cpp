@@ -1,7 +1,7 @@
 // ui.cpp - ImGui 界面：规则编辑 + 启动代理（IFEO）管理。
 //
 // 本程序不监听进程、不注入；「IFEO 管理」页负责把启动代理挂到目标上。
-#include "app.h"
+#include "app/app.h"
 
 #include <imgui.h>
 

@@ -99,6 +99,7 @@ include/waf/                 公共头
   ifeo.h                     Image File Execution Options 读写
   runtime.h                  日志、策略调用点表、调用点判定、几何查询
   yamlmini.h                 最小 YAML 子集解析器（含序列化）
+include/app/app.h            WorkAreaFullscreen 程序接口（状态、配置读写、启动代理管理）
 src/core/                    waf_core：yamlmini / runtime / config / ifeo
 src/app/                     WorkAreaFullscreen.exe（界面：配置编辑 + 启动代理管理）
 src/launcher/                HookLauncher.exe（启动代理）
