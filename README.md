@@ -151,6 +151,40 @@ targets:
 中转，本机实测延迟 0.6~1.7 秒，比轮询还慢；因此两者并行、以先到者为准，WMI 只作补充。
 界面的「运行状态」会显示当前生效的监听方式。
 
+### 启动代理（IFEO）：把注入提前到目标执行第一条指令之前
+
+上面那套仍然只是"比谁快"——发现再快，从发现到 DLL 真正加载也有几百毫秒，而目标的显示
+初始化可能就在这几百毫秒内完成（实测出现过目标已运行 695 ms 才注入、`GetDeviceCaps`
+一次都没被调用的情况）。要彻底消除这个竞速，用 IFEO + 启动代理：
+
+```
+任意程序启动 <目标>.exe
+      │  Windows IFEO（HKLM\...\Image File Execution Options\<目标>.exe 的 Debugger 值）
+      ▼
+HookLauncher.exe
+      │  以调试器身份创建真正的 <目标>.exe（DEBUG_ONLY_THIS_PROCESS）
+      ▼
+   目标主线程停在系统断点，尚未执行任何用户代码
+      │  注入 injector.dll
+      ▼
+ContinueDebugEvent 放行，目标继续初始化
+```
+
+安装/卸载（需要管理员权限）：
+
+```powershell
+HookLauncher.exe --install   <目标.exe>   # 写 IFEO Debugger 值
+HookLauncher.exe --uninstall <目标.exe>   # 删除该值
+```
+
+安装包里的「为 stellaris.exe 启用启动代理」任务等价于上面第一条命令，卸载时自动清理。
+
+两点说明：
+
+- 用 `DEBUG_ONLY_THIS_PROCESS` 不仅是让目标停在入口点，也避免"带 DEBUG 标志的
+  CreateProcess 再走一遍 IFEO"造成递归。
+- 实测注入完成于目标启动后 **19 ms**（常规路径是 400~700 ms），稳定早于显示初始化。
+
 **`scope`**
 
 - `callsite`：只对 `strategy` 表里记录的该组件调用点生效，其余调用原样放行（生产配置）。

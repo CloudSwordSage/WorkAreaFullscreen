@@ -104,6 +104,12 @@ add_executable(WorkAreaFullscreen
 target_link_libraries(WorkAreaFullscreen PRIVATE waf_core imgui wbemuuid ole32 oleaut32)
 
 # ---------------------------------------------------------------------------
+# HookLauncher.exe：启动代理
+#   配合 IFEO，在目标执行用户代码之前就把 injector.dll 注入进去，彻底摆脱注入时机问题
+# ---------------------------------------------------------------------------
+add_executable(HookLauncher src/launcher/main.cpp)
+
+# ---------------------------------------------------------------------------
 # 自检（-DBUILD_TESTING=OFF 可关闭）
 # ---------------------------------------------------------------------------
 include(CTest)

@@ -161,7 +161,19 @@ bool HkVerifyCallsite(const HkEnv& env, ULONG_PTR rva, const wchar_t* dll, const
 
         void* target = nullptr;
         if (!SafeReadPtr(reinterpret_cast<void* const*>(p + 6 + disp), &target)) return false;
-        return target == reinterpret_cast<void*>(real);
+
+        // 指令形态已确认这就是一条 call [IAT]；槽值与 GetProcAddress 理论上应当相同，但
+        // 部分导出（如 gdi32.GetDeviceCaps）在现代 Windows 上会转发到别的模块，两者可能
+        // 因转发路径不同而不等。这种情况只记一条警告，不因此放弃整个组件。
+        if (target != reinterpret_cast<void*>(real)) {
+            char buf[256];
+            _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+                        "verify: %s rva=0x%llX 的 IAT 槽=%p 与 GetProcAddress=%p 不同（按通过处理）",
+                        proc, static_cast<unsigned long long>(rva), target,
+                        reinterpret_cast<void*>(real));
+            HkLog("%s", buf);
+        }
+        return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }

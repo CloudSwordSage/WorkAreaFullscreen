@@ -7,6 +7,7 @@
 #define AppPublisher   "WorkAreaFullscreen"
 #define AppExeName     "WorkAreaFullscreen.exe"
 #define InjectDllName  "injector.dll"
+#define LauncherName   "HookLauncher.exe"
 
 [Setup]
 AppId={{8F2A1C3B-4D5E-4A6B-9C7D-1E2F3A4B5C6D}
@@ -32,10 +33,12 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.i
 [Tasks]
 Name: "autostart";   Description: "开机自动启动"; GroupDescription: "附加任务:"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"; Flags: unchecked
+Name: "ifeo";        Description: "为 stellaris.exe 启用启动代理（在游戏执行第一条指令前注入，最可靠的注入时机）"; GroupDescription: "附加任务:"; Flags: unchecked
 
 [Files]
 Source: "..\build\release\{#AppExeName}";  DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\release\{#InjectDllName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\release\{#LauncherName}"; DestDir: "{app}"; Flags: ignoreversion
 ; 示例配置：只在缺失时放置，避免覆盖用户已有配置
 Source: "..\config\config.yaml"; DestDir: "{app}"; DestName: "config.example.yaml"; Flags: onlyifdoesntexist
 
@@ -48,6 +51,10 @@ Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: deskt
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExeName}"""; \
     Flags: uninsdeletevalue; Tasks: autostart
+; 启动代理：让 stellaris.exe 的每次启动都先经过 HookLauncher（卸载时自动移除该值）
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\stellaris.exe"; \
+    ValueType: string; ValueName: "Debugger"; ValueData: """{app}\{#LauncherName}"""; \
+    Flags: uninsdeletevalue; Tasks: ifeo
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent
