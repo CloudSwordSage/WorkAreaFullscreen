@@ -1,0 +1,36 @@
+name: 功能请求
+description: 提出一个新功能或能力增强
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: 请重点描述要解决的问题，而不只是期望的实现方式。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 当前有什么限制或不方便？在什么场景下遇到？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 你希望它如何工作（可选）
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案
+      description: 你考虑过的其他做法或替代工具
+    validations:
+      required: false
+  - type: input
+    id: target
+    attributes:
+      label: 相关程序 / 游戏
+      description: 该功能针对的具体目标（如某个游戏的 hook 策略）
+    validations:
+      required: false

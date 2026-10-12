@@ -1,0 +1,77 @@
+name: Bug 报告
+description: 报告一个可复现的缺陷
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先搜索已有 Issue，避免重复。
+        安全漏洞请勿使用本模板，请按 SECURITY.md 的渠道私下报告。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象描述
+      description: 实际发生了什么？你期望的是什么？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 提交
+      description: "安装包版本、Release tag，或 `git rev-parse HEAD`"
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: 涉及组件
+      options:
+        - WorkAreaFullscreen.exe（界面）
+        - HookLauncher.exe（启动代理）
+        - injector.dll（注入 / hook）
+        - 构建 / 安装
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: 目标程序
+      description: 被处理的可执行文件名与版本（如 stellaris.exe 3.x），以及是否经 Steam 启动
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: Windows 版本、显示器数量与分辨率、是否多屏
+    validations:
+      required: false
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置
+      description: 涉及的 target / hook 配置片段（可脱敏）
+      render: yaml
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: |
+        %TEMP%\WorkAreaFullscreen-launcher.log 与 %TEMP%\WorkAreaFullscreen-hook.log（如相关）
+      render: text
+    validations:
+      required: false
