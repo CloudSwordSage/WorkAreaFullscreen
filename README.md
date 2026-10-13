@@ -99,7 +99,7 @@ include/waf/                 公共头
   component.h                HkComponent 接口 + 静态注册宏
   config.h                   配置模型（Parse / Dump / FindRule）
   ifeo.h                     Image File Execution Options 读写
-  runtime.h                  日志、策略调用点表、调用点判定、几何查询
+  runtime.h                  日志、策略调用点表（配置装载）、调用点判定、几何查询
   yamlmini.h                 最小 YAML 子集解析器（含序列化）
 include/app/app.h            WorkAreaFullscreen 程序接口（状态、配置读写、启动代理管理）
 src/core/                    waf_core：yamlmini / runtime / config / ifeo
@@ -135,7 +135,7 @@ enabled: true              # 总开关（HookLauncher 注入时读）
 targets:
   - executable: stellaris.exe   # 进程映像名，不区分大小写
     enabled: true
-    strategy: sdl2-gdi          # 提供与目标版本绑定的调用点 RVA 表
+    strategy: sdl2-gdi          # 引用 strategies 里的调用点 RVA 表
     geometry: work_area         # work_area = rcWork；monitor = rcMonitor（不改写）
     inject_delay_ms: 400        # 目标启动后多少毫秒再注入（每条规则可单独设）
     refresh_displays: sdl       # 显示器缓存刷新方式：none（默认）| sdl
@@ -156,15 +156,32 @@ targets:
         scope: global
     safety:
       verify_callsite: true     # 注入前校验调用点指令形态
+
+# 调用点 RVA 表（相对目标映像基址）：绑定 stellaris.exe + 静态链接的 SDL 2.26.5
+strategies:
+  sdl2-gdi:
+    GetMonitorInfoW:
+      - 0x1DFAAF5
+      - 0x1DFABA1
+      - 0x1DFB491
+      - 0x1DFE184
+    GetDeviceCaps:
+      - 0x1DFBB35
+      - 0x1DFBB45
 ```
 
 **`scope`**
 
-- `callsite`：只对 `strategy` 表里记录的该组件调用点生效，其余调用原样放行（生产配置）。
+- `callsite`：只对 `strategies` 里该策略记录的该组件调用点生效，其余调用原样放行（生产配置）。
 - `global`：对该 API 的所有调用生效。
 
-**`verify_callsite`** 按 `strategy` 的 RVA 检查该处是否为一条 `call qword ptr [rip+disp32]`；
+**`verify_callsite`** 按 `strategies` 的 RVA 检查该处是否为一条 `call qword ptr [rip+disp32]`；
 版本变化导致 RVA 失配时直接回退为不改写，不会写坏进程。内存读取以 SEH 保护。
+
+**`strategies`**（顶层）是调用点 RVA 表的定义处，结构为
+`策略名 -> 组件名 -> 调用指令 RVA 列表`，RVA 相对目标映像基址（支持 `0x` 十六进制）。目标规则的
+`strategy` 按名字引用其中一张表。表从配置文件装载，不再编译进代码：适配新版本时只改这里，
+不需要重新编译 `injector.dll`。
 
 **`refresh_displays`**（默认 `none`）选择注入后的显示器缓存刷新方式：
 
@@ -188,6 +205,17 @@ targets:
 宿主遍历注册表读配置，不需要改动。界面里的「新增组件」列表来自 `injector.dll` 导出的组件目录
 （`HkComponentCount` / `HkComponentName` / `HkComponentDefaultConfig`），新组件写好
 `defaultConfig` 后会自动出现在列表里。
+
+## 适配新的目标版本
+
+`strategies` 里的 RVA 绑定具体版本的 exe。游戏更新导致调用点移位时：
+
+1. 重新定位调用点（方法与源码对应关系见 `docs/stellaris.md`）；
+2. 直接编辑配置里对应的 RVA 列表；
+3. 无需重新编译：`injector.dll` 下次注入时按新表工作。
+
+`scope: callsite` 的组件若在表里找不到该组件的调用点、或 `verify_callsite` 校验失败，会整条
+回退为不改写，只影响该组件本身。
 
 ## 自检
 

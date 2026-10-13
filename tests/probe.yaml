@@ -5,6 +5,7 @@
 #   scope: global           —— probe_host 的调用点不在 sdl2-gdi 策略表里
 #   verify_callsite: false  —— probe_host 不是 stellaris.exe，无法按 RVA 校验
 #   refresh_displays 省略    —— 默认 none，probe_host 没有 SDL 窗口可刷新
+#   strategies 省略         —— scope 全为 global，不需要调用点表
 enabled: true
 
 targets:

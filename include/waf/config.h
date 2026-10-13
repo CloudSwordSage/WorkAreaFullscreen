@@ -1,14 +1,31 @@
-// config.h - 应用配置模型：全局设置 + 多条目标注入规则。
+// config.h - 应用配置模型：全局设置 + 策略调用点表 + 多条目标注入规则。
 //
 // 与 YAML 文本互转（Parse / Dump），供常驻宿主与 UI 共用。hook 组件的参数以原始
 // YAML 子树保留（HookSetting::params），因此新增组件参数不需要改动本文件。
 #pragma once
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+#include <map>
 #include <string>
 #include <vector>
 
 #include "waf/yamlmini.h"
 
 namespace waf {
+
+    /** 一条策略内「组件名 -> 调用指令 RVA 列表」的调用点表。 */
+    using StrategyCallsites = std::map<std::string, std::vector<ULONG_PTR>>;
+
+    /**
+     * 策略名 -> 该策略的调用点表。
+     *
+     * 从配置文件的顶层 `strategies:` 段装载，因此新增目标版本只需编辑配置，
+     * 不必重新编译。
+     */
+    using StrategyTable = std::map<std::string, StrategyCallsites>;
 
     /** 单个 hook 组件的配置。 */
     struct HookSetting {
@@ -38,6 +55,8 @@ namespace waf {
     struct AppConfig {
             bool enabled = true; ///< 总开关（HookLauncher 注入时读）
             std::vector<TargetRule> targets;
+            /** 目标规则的 strategy 引用这里的调用点表。 */
+            StrategyTable strategies;
 
             /**
              * 解析 YAML 文本。

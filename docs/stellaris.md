@@ -41,6 +41,18 @@ targets:
         scope: global
     safety:
       verify_callsite: true
+
+# 调用点 RVA 表（相对目标映像基址）：绑定 stellaris.exe + 静态链接的 SDL 2.26.5
+strategies:
+  sdl2-gdi:
+    GetMonitorInfoW:
+      - 0x1DFAAF5
+      - 0x1DFABA1
+      - 0x1DFB491
+      - 0x1DFE184
+    GetDeviceCaps:
+      - 0x1DFBB35
+      - 0x1DFBB45
 ```
 
 挂载启动代理（需要管理员权限；界面里点「挂载」等价）：
@@ -87,7 +99,7 @@ HookLauncher.exe --install "<游戏目录>\stellaris.exe"
 
 ## 策略与生效范围
 
-`strategy: sdl2-gdi` 提供与该版本 `stellaris.exe` 绑定的调用点 RVA 表：
+`strategy: sdl2-gdi` 指向配置里同名策略的调用点表；表本身定义在顶层 `strategies:` 段：
 
 | 组件 | 调用点（相对 ImageBase） |
 | --- | --- |
@@ -101,10 +113,13 @@ HookLauncher.exe --install "<游戏目录>\stellaris.exe"
 任一调用点对不上就整条组件回退为不改写。这样游戏更新换了版本、RVA 失配时，后果只是「功能不生效」，
 不会写坏进程。
 
+这些 RVA 定义在配置文件的 `strategies` 段里，不编译进代码：游戏更新后重新定位调用点并改配置
+即可，无需重新构建 `injector.dll`。
+
 ## 已知限制
 
 - RVA 表绑定特定版本的 `stellaris.exe` + 静态链接的 SDL 2.26.5。游戏大版本更新后需要重新定位
-  调用点并更新策略表。
+  调用点并更新配置里的 `strategies` 段（无需重新编译）。
 - 改写只覆盖主窗口的创建路径；启动阶段的 logo 小窗口（同为 `SDL_app` 类）不在覆盖范围内。
 - 已经启动的游戏进程不受影响，改动在下次注入时生效，需要重启游戏。
 
