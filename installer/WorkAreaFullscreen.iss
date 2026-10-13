@@ -30,7 +30,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 官方 Inno Setup 只随官方翻译，简体中文取自 istrans 页面并随仓库分发；
+; 升级 Inno Setup 时需同步替换 installer\ChineseSimplified.isl（见 https://jrsoftware.org/files/istrans/）
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 Name: "autostart";   Description: "开机自动启动"; GroupDescription: "附加任务:"
