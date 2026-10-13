@@ -138,6 +138,23 @@ namespace waf::app {
                     dirty = true;
                 }
 
+                ImGui::SetNextItemWidth(150);
+                int refresh = (t.refreshDisplays == "sdl") ? 1 : 0;
+                if (ImGui::Combo(
+                        "刷新方式",
+                        &refresh,
+                        "不刷新\0SDL 引擎刷新\0"
+                    )) {
+                    t.refreshDisplays = refresh ? "sdl" : "none";
+                    dirty = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "SDL 引擎刷新：注入后向目标的 SDL 窗口发一次\n"
+                        "WM_DISPLAYCHANGE，让 SDL 按改写后的尺寸重建"
+                        "显示器缓存。"
+                    );
+
                 dirty |= ImGui::Checkbox("校验调用点", &t.verifyCallsite);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip(

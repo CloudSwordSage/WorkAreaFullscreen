@@ -23,6 +23,7 @@ targets:
     strategy: sdl2-gdi
     geometry: work_area
     inject_delay_ms: 400
+    refresh_displays: sdl
     hooks:
       GetMonitorInfoW:
         enabled: true
@@ -79,6 +80,10 @@ HookLauncher.exe --install "<游戏目录>\stellaris.exe"
 `inject_delay_ms` 默认 400 ms，能同时避开这两种失败。该值按规则单独配置：目标机器越慢，
 显示初始化越晚，可适当调大；如果游戏在注入前就已完成显示初始化（日志里三个组件都没有命中），
 则需要调小。
+
+`refresh_displays`（默认 `none`）选择注入后的显示器缓存刷新方式：设成 `sdl` 时，`hook` 模块
+等游戏出现 SDL 窗口后发一次 `WM_DISPLAYCHANGE`，让 SDL 按改写后的尺寸重新枚举显示器、重建
+`desktop_mode`。群星需要这一项，配置里显式写成 `sdl`。
 
 ## 策略与生效范围
 

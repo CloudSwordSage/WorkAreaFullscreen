@@ -28,6 +28,8 @@ namespace waf {
             std::string geometry = "work_area"; ///< "work_area" | "monitor"
             int injectDelayMs =
                 400; ///< 目标启动后多少毫秒再注入（0 = 尽可能早）
+            std::string refreshDisplays =
+                "none";                 ///< 显示器缓存刷新方式："none" | "sdl"
             bool verifyCallsite = true; ///< 注入前校验调用点字节
             std::vector<HookSetting> hooks;
     };

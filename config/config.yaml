@@ -4,6 +4,9 @@
 # geometry          work_area = 窗口铺满工作区（保留任务栏）；monitor = 显示器整块区域
 # inject_delay_ms   目标进程启动后多少毫秒再注入。太早会让部分引擎（如群星）启动失败，
 #                   太晚则错过目标的显示初始化；按规则单独设置。
+# refresh_displays  显示器缓存刷新方式：none = 不刷新（默认）；sdl = 注入后向目标的 SDL
+#                   窗口发一次 WM_DISPLAYCHANGE，触发 SDL 重建显示器缓存
+#                   （desktop_mode 只在视频初始化或收到该消息时枚举）。
 # 启动代理的挂载状态存放在注册表（IFEO）里，不写进本文件。
 
 enabled: true
@@ -14,6 +17,7 @@ targets:
     strategy: sdl2-gdi
     geometry: work_area
     inject_delay_ms: 400
+    refresh_displays: sdl
     hooks:
       GetMonitorInfoW:
         enabled: true
