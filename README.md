@@ -8,7 +8,7 @@
 | 产物 | 角色 |
 | --- | --- |
 | `WorkAreaFullscreen.exe` | 配置编辑器 + 启动代理管理者。**不监听进程、不注入** |
-| `HookLauncher.exe` | 启动代理：以调试器身份启动目标，在配置的延迟之后注入 |
+| `HookLauncher.exe` | 启动代理：以调试器身份启动目标，在配置的延迟之后注入，注入完成即脱离调试 |
 | `injector.dll` | 被注入目标进程的 hook 模块，按配置改写 API 返回值 |
 
 三者必须放在同一目录。
@@ -53,11 +53,18 @@ ContinueDebugEvent 立即放行，目标开始正常初始化
       │  等配置要求的 inject_delay_ms（默认 400 ms）
       ▼
 注入 injector.dll（远程线程 LoadLibraryW）
+      │  注入完成即解除调试关系（DebugActiveProcessStop）
+      ▼
+目标继续独立运行（HookLauncher 退出，不随目标结束）
 ```
 
 `DEBUG_ONLY_THIS_PROCESS` 有两个作用：让调试器先接管启动（从而避免带 DEBUG 标志的
 `CreateProcess` 再触发一次 IFEO 造成递归），以及能在目标跑起来之后仍由我们决定注入时机。
 延迟由**独立计时线程**完成，目标在这段时间里已经正常跑完自己的初始化。
+
+调试关系只在**注入期间**保持：注入线程一结束，主线程就调用 `DebugSetProcessKillOnExit(FALSE)`
+和 `DebugActiveProcessStop`，目标不再带调试器运行，`HookLauncher` 随即退出。前者的默认值是
+`TRUE`，若不关掉，调试器退出时会把目标一并杀掉。
 
 ## 快速开始
 

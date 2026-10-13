@@ -13,6 +13,10 @@
 // 只是把调试器插到命令行前面），于是启动链变成：
 //   任意程序 -> IFEO -> HookLauncher -> 目标（挂起）-> 注入 -> 恢复执行
 //
+// 注入完成后主动解除调试关系（DebugActiveProcessStop）并让 HookLauncher 退出；
+// 退出前用 DebugSetProcessKillOnExit(FALSE)
+// 关掉“调试器退出即杀目标”的默认行为。
+//
 // 也支持直接调用：HookLauncher.exe <target.exe> [目标参数...]
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -35,6 +39,13 @@ namespace {
     bool g_logCsReady = false;
 
     constexpr int kDefaultInjectDelayMs = 400;
+
+    // 调试循环的轮询间隔：WaitForDebugEvent 不能同时等待“注入完成”，
+    // 只能按超时轮询；100ms 兼顾脱离的及时性与空闲时的空转开销。
+    constexpr DWORD kPollMs = 100;
+
+    // 注入线程完成后置位（InterlockedExchange），调试循环轮询后脱离调试。
+    volatile LONG g_injectDone = 0;
 
     void LogOpen() {
         wchar_t tmp[MAX_PATH]{};
@@ -267,6 +278,9 @@ namespace {
         else
             Log("注入失败：%s", err.c_str());
 
+        // 无论注入成败都置位：注入一旦结束就没有继续调试目标的理由。
+        InterlockedExchange(&g_injectDone, 1);
+
         delete job;
         return 0;
     }
@@ -312,11 +326,22 @@ namespace {
             Narrow(dll).c_str());
 
         bool firstBreakpoint = true;
+        bool detach = false;
         DEBUG_EVENT ev{};
 
         for (;;) {
-            if (!WaitForDebugEvent(&ev, INFINITE))
-                break;
+            // WaitForDebugEvent 不能同时等待“注入完成”，故按小超时轮询：无事件
+            // 可处理时醒来检查计时线程是否已注入完毕。脱离只在超时（没有未放行
+            // 的调试事件）分支进行，否则目标会停在那个事件上。
+            if (!WaitForDebugEvent(&ev, kPollMs)) {
+                if (g_injectDone) {
+                    detach = true;
+                    break;
+                }
+                if (WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0)
+                    break; // 目标已退出且不再产生事件
+                continue;
+            }
 
             DWORD cont = DBG_CONTINUE;
 
@@ -393,6 +418,17 @@ namespace {
                 CloseHandle(pi.hProcess);
                 return static_cast<int>(code);
             }
+        }
+
+        if (detach) {
+            // 注入已结束：解除调试关系，让目标独立运行。DebugSetProcessKillOnExit
+            // 必须在建立该调试连接的线程（本线程）调用，否则调试线程/进程退出时
+            // 默认会把目标一并杀掉。
+            DebugSetProcessKillOnExit(FALSE);
+            if (DebugActiveProcessStop(pi.dwProcessId))
+                Log("目标已脱离调试，继续独立运行（PID %lu）", pi.dwProcessId);
+            else
+                Log("DebugActiveProcessStop 失败 err=%lu", GetLastError());
         }
 
         CloseHandle(pi.hThread);
