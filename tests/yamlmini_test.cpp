@@ -238,12 +238,37 @@ static void TestStrategyTable() {
     assert(waf::HkStrategyCallsites("sdl2-gdi", "GetDeviceCaps").size() == 1);
 }
 
+// 空容器（Dump 会写成 [] / {}）必须能被读回：界面允许把规则/策略/RVA 删空。
+static void TestEmptyContainers() {
+    Node n;
+    std::string err;
+    assert(yamlmini::Parse("a: []\nb: {}\nseq:\n  - {}\n  - []\n", n, err));
+    assert(n.find("a")->kind == Node::Seq && n.find("a")->seq.empty());
+    assert(n.find("b")->kind == Node::Map && n.find("b")->map.empty());
+    assert(n.find("seq")->kind == Node::Seq && n.find("seq")->seq.size() == 2);
+    assert(n.find("seq")->seq[0].kind == Node::Map);
+    assert(n.find("seq")->seq[1].kind == Node::Seq);
+    assert(yamlmini::Dump(n).find("a: []") != std::string::npos);
+
+    // 配置模型层：删空规则、空策略、空 RVA 列表都要能往返
+    waf::AppConfig cfg;
+    cfg.strategies["newstrat"] = waf::StrategyCallsites{};
+    cfg.strategies["sdl2-gdi"]["GetDeviceCaps"] = {};
+    waf::AppConfig back;
+    assert(waf::AppConfig::Parse(cfg.Dump(), back, err));
+    assert(back.targets.empty());
+    assert(back.strategies.size() == 2);
+    assert(back.strategies.at("newstrat").empty());
+    assert(back.strategies.at("sdl2-gdi").at("GetDeviceCaps").empty());
+}
+
 int main() {
     TestParse();
     TestDumpRoundTrip();
     TestScalarsAndQuotes();
     TestAppConfig();
     TestStrategyTable();
+    TestEmptyContainers();
     TestErrors();
     printf("yamlmini + config self-check: OK\n");
     return 0;
