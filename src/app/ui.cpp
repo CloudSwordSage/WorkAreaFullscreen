@@ -47,9 +47,12 @@ namespace waf::app {
             return s.substr(begin, end - begin + 1);
         }
 
-        // 「RVA 配置」页新增策略/组件时的名字输入缓冲（只在主线程访问）。
+        // 「RVA 配置」页的输入缓冲（只在主线程访问）：新增策略/组件，以及每个
+        // 策略名的编辑缓冲（std::map 的键不可原地改，编辑后统一走
+        // RenameStrategy）。
         std::string g_newStrategy;
         std::string g_newComponent;
+        std::map<std::string, std::string> g_nameEdit;
 
         // 用组件目录里的默认配置构造一条 HookSetting：YAML 里的 scope
         // 提到结构字段，其余进 params。
@@ -257,8 +260,9 @@ namespace waf::app {
         /**
          * 策略调用点表编辑：策略名 -> 组件 -> RVA 列表。
          *
-         * 只做增删条目与改值，不做重命名（map 的键不可直接改，删了重建即可）。
-         * 列表为空表示该组件没有已知调用点，callsite 组件会整条回退。
+         * 每个策略可折叠；策略名是就地编辑的输入框，失焦或回车后走
+         * RenameStrategy（同步更新引用它的规则）。RVA
+         * 列表为空表示该组件没有已知 调用点，callsite 组件会整条回退。
          */
         void DrawStrategies(State & st) {
             StrategyTable & table = st.config.strategies;
@@ -288,15 +292,50 @@ namespace waf::app {
             ImGui::Spacing();
 
             std::string removeStrategy;
+            std::string renameOldKey;
+            std::string renameNewName;
             for (auto & entry : table) {
                 ImGui::PushID(entry.first.c_str());
 
-                ImGui::SeparatorText(entry.first.c_str());
+                char title[320];
+                _snprintf_s(
+                    title,
+                    sizeof(title),
+                    _TRUNCATE,
+                    "%s (%zu 组件)###strategy",
+                    entry.first.c_str(),
+                    entry.second.size()
+                );
+                if (!ImGui::CollapsingHeader(
+                        title,
+                        ImGuiTreeNodeFlags_DefaultOpen
+                    )) {
+                    ImGui::PopID();
+                    continue;
+                }
+
+                bool dirty = false;
+
+                // 策略名（map 的键）就地编辑，标签为「策略名」。
+                // 失焦或回车时提交，改表推迟到循环外，避免遍历中修改容器。
+                std::string & nameBuf = g_nameEdit[entry.first];
+                if (nameBuf.empty())
+                    nameBuf = entry.first;
+                ImGui::SetNextItemWidth(200);
+                InputString("策略名", nameBuf);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "失焦或回车后提交；改名会同步更新引用该策略的规则的"
+                        "strategy。"
+                    );
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    renameOldKey = entry.first;
+                    renameNewName = Trim(nameBuf);
+                }
                 ImGui::SameLine();
                 if (ImGui::SmallButton("删除策略"))
                     removeStrategy = entry.first;
 
-                bool dirty = false;
                 StrategyCallsites & components = entry.second;
 
                 std::string removeComponent;
@@ -390,8 +429,28 @@ namespace waf::app {
 
             if (!removeStrategy.empty()) {
                 table.erase(removeStrategy);
+                g_nameEdit.erase(removeStrategy);
                 st.configDirty = true;
             }
+
+            // 改名：成功后把编辑缓冲迁到新键；失败（空名/重名/未变）则回显真实名。
+            if (!renameOldKey.empty()) {
+                if (RenameStrategy(st.config, renameOldKey, renameNewName)) {
+                    st.configDirty = true;
+                    g_nameEdit[renameNewName] =
+                        std::move(g_nameEdit[renameOldKey]);
+                    g_nameEdit.erase(renameOldKey);
+                } else {
+                    g_nameEdit[renameOldKey] = renameOldKey;
+                }
+            }
+
+            // 丢掉已不存在的策略遗留的编辑缓冲（外部热重载或删除之后）。
+            for (auto it = g_nameEdit.begin(); it != g_nameEdit.end();)
+                if (table.find(it->first) == table.end())
+                    it = g_nameEdit.erase(it);
+                else
+                    ++it;
 
             if (table.empty())
                 ImGui::TextDisabled(

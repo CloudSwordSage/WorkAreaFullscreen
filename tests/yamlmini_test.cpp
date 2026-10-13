@@ -262,6 +262,28 @@ static void TestEmptyContainers() {
     assert(back.strategies.at("sdl2-gdi").at("GetDeviceCaps").empty());
 }
 
+// 策略改名：键迁移、表内容保留、引用同步，非法改名被拒绝。
+static void TestRenameStrategy() {
+    waf::AppConfig cfg = waf::DefaultConfig();
+    assert(cfg.strategies.count("sdl2-gdi") == 1);
+    assert(cfg.targets[0].strategy == "sdl2-gdi");
+
+    assert(!waf::RenameStrategy(cfg, "sdl2-gdi", "sdl2-gdi")); // 同名
+    assert(!waf::RenameStrategy(cfg, "sdl2-gdi", ""));         // 空名
+    assert(!waf::RenameStrategy(cfg, "missing", "x"));         // 源不存在
+
+    cfg.strategies["other"] = {};
+    assert(!waf::RenameStrategy(cfg, "sdl2-gdi", "other")); // 目标已存在
+    assert(cfg.strategies.count("sdl2-gdi") == 1);
+
+    assert(waf::RenameStrategy(cfg, "sdl2-gdi", "sdl2-gdi-v2"));
+    assert(cfg.strategies.count("sdl2-gdi") == 0);
+    assert(cfg.strategies.count("sdl2-gdi-v2") == 1);
+    assert(cfg.strategies.at("sdl2-gdi-v2").at("GetMonitorInfoW").size() == 4);
+    assert(cfg.strategies.at("sdl2-gdi-v2").at("GetDeviceCaps").size() == 2);
+    assert(cfg.targets[0].strategy == "sdl2-gdi-v2"); // 引用已同步
+}
+
 int main() {
     TestParse();
     TestDumpRoundTrip();
@@ -269,6 +291,7 @@ int main() {
     TestAppConfig();
     TestStrategyTable();
     TestEmptyContainers();
+    TestRenameStrategy();
     TestErrors();
     printf("yamlmini + config self-check: OK\n");
     return 0;

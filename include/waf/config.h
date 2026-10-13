@@ -95,4 +95,21 @@ namespace waf {
     /** 首次运行时的默认配置：一条 stellaris.exe 规则。 */
     AppConfig DefaultConfig();
 
+    /**
+     * 重命名一张策略表（`std::map` 的键无法原地改，只能取出键再放回）。
+     *
+     * 同时把引用该策略的规则的 `strategy`
+     * 改成新名，避免规则指向已经不存在的表。
+     *
+     * @param cfg  待修改的配置。
+     * @param from 原策略名。
+     * @param to   新策略名；须非空且不与已有策略重名。
+     * @return     实际改名返回 true；名字为空、未变化或冲突时返回 false。
+     */
+    bool RenameStrategy(
+        AppConfig & cfg,
+        const std::string & from,
+        const std::string & to
+    );
+
 } // namespace waf
