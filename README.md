@@ -190,6 +190,9 @@ strategies:
 `strategy` 按名字引用其中一张表。表从配置文件装载，不再编译进代码：适配新版本时只改这里，
 不需要重新编译 `injector.dll`。
 
+界面有「规则」「RVA 配置」「IFEO 管理」三个页：「RVA 配置」页可直接增删策略与组件、编辑每一条
+RVA（十六进制），保存后写回配置文件的 `strategies` 段。
+
 **`refresh_displays`**（默认 `none`）选择注入后的显示器缓存刷新方式：
 
 - `none`：不刷新。
@@ -218,7 +221,7 @@ strategies:
 `strategies` 里的 RVA 绑定具体版本的 exe。游戏更新导致调用点移位时：
 
 1. 重新定位调用点（方法与源码对应关系见 `docs/stellaris.md`）；
-2. 直接编辑配置里对应的 RVA 列表；
+2. 编辑对应的 RVA 列表：界面「RVA 配置」页，或直接改配置文件的 `strategies` 段；
 3. 无需重新编译：`injector.dll` 下次注入时按新表工作。
 
 `scope: callsite` 的组件若在表里找不到该组件的调用点、或 `verify_callsite` 校验失败，会整条
