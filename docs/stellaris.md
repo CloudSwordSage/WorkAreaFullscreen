@@ -114,7 +114,8 @@ HookLauncher.exe --install "<游戏目录>\stellaris.exe"
 不会写坏进程。
 
 这些 RVA 定义在配置文件的 `strategies` 段里，不编译进代码：游戏更新后重新定位调用点并改配置
-即可，无需重新构建 `injector.dll`。界面「RVA 配置」页可以直接增删策略/组件、编辑每条 RVA。
+即可，无需重新构建 `injector.dll`。界面「RVA 配置」页按策略折叠展示，可直接增删策略/组件、编辑
+每条 RVA，并可重命名策略（同步更新引用它的规则）。
 
 ## 已知限制
 

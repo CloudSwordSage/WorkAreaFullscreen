@@ -290,4 +290,27 @@ namespace waf {
         return c;
     }
 
+    bool RenameStrategy(
+        AppConfig & cfg,
+        const std::string & from,
+        const std::string & to
+    ) {
+        if (from.empty() || to.empty() || from == to)
+            return false;
+        if (cfg.strategies.find(from) == cfg.strategies.end())
+            return false;
+        if (cfg.strategies.find(to) != cfg.strategies.end())
+            return false;
+
+        auto node = cfg.strategies.extract(from);
+        node.key() = to;
+        cfg.strategies.insert(std::move(node));
+
+        // 引用该策略的规则同步改名；否则改名后规则会指向一张不存在的表。
+        for (auto & t : cfg.targets)
+            if (t.strategy == from)
+                t.strategy = to;
+        return true;
+    }
+
 } // namespace waf
