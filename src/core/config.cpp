@@ -60,6 +60,7 @@ namespace waf {
                 r.injectDelayMs = IntOf(t.find("inject_delay_ms"), 400);
                 if (r.injectDelayMs < 0)
                     r.injectDelayMs = 0;
+                r.refreshDisplays = StrOf(t.find("refresh_displays"), "none");
 
                 const yamlmini::Node * safety = t.find("safety");
                 r.verifyCallsite = BoolOf(
@@ -107,6 +108,7 @@ namespace waf {
                 "inject_delay_ms",
                 Scalar(std::to_string(t.injectDelayMs))
             );
+            tn.map.emplace_back("refresh_displays", Scalar(t.refreshDisplays));
 
             yamlmini::Node hooks;
             hooks.kind = yamlmini::Node::Map;
@@ -188,6 +190,9 @@ namespace waf {
     AppConfig DefaultConfig() {
         AppConfig c;
         c.targets.push_back(NewDefaultRule("stellaris.exe"));
+        // 群星的 desktop_mode 只在视频初始化或收到 WM_DISPLAYCHANGE 时重建，
+        // 需要 SDL 刷新方式；通用模板 NewDefaultRule 默认 "none"。
+        c.targets[0].refreshDisplays = "sdl";
         return c;
     }
 

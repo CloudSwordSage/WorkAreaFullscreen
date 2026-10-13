@@ -28,7 +28,9 @@
 逐项调用 `EnumDisplaySettingsW` 填充。
 
 因此 hook 模块做三件事：改 `GetDeviceCaps`、改 `EnumDisplaySettingsW`、注入后主动发一次
-`WM_DISPLAYCHANGE` 让 SDL 重建 `desktop_mode` 缓存；位置则用 `GetMonitorInfoW` 把 `rcMonitor`
+`WM_DISPLAYCHANGE` 让 SDL 重建 `desktop_mode` 缓存（由每行的 `refresh_displays` 选择，
+默认不刷新）；
+位置则用 `GetMonitorInfoW` 把 `rcMonitor`
 换成 `rcWork`。三者一致后，居中结果正好等于 `rcWork`，窗口铺满工作区。
 
 **关键前提是注入要早于目标的显示初始化**——但也不能太早：实测在目标尚未完成初始化时注入，
@@ -136,6 +138,7 @@ targets:
     strategy: sdl2-gdi          # 提供与目标版本绑定的调用点 RVA 表
     geometry: work_area         # work_area = rcWork；monitor = rcMonitor（不改写）
     inject_delay_ms: 400        # 目标启动后多少毫秒再注入（每条规则可单独设）
+    refresh_displays: sdl       # 显示器缓存刷新方式：none（默认）| sdl
     hooks:
       GetMonitorInfoW:
         enabled: true
@@ -162,6 +165,13 @@ targets:
 
 **`verify_callsite`** 按 `strategy` 的 RVA 检查该处是否为一条 `call qword ptr [rip+disp32]`；
 版本变化导致 RVA 失配时直接回退为不改写，不会写坏进程。内存读取以 SEH 保护。
+
+**`refresh_displays`**（默认 `none`）选择注入后的显示器缓存刷新方式：
+
+- `none`：不刷新。
+- `sdl`：`hook` 模块等目标出现窗口后向其发一次 `WM_DISPLAYCHANGE`，让 SDL 重新枚举显示器并
+  按改写后的尺寸重建 `desktop_mode`。目标是 SDL 时用这个；不做显示初始化的进程（如自检用的
+  `probe_host.exe`）不必开启。
 
 界面里每条规则都有「挂载 / 摘除启动代理」按钮，挂载状态直接读注册表，不写进配置文件。
 

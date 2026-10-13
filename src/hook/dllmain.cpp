@@ -87,7 +87,7 @@ namespace waf {
          * 改写的）工作区尺寸重建。
          *
          * 必须等目标出现 SDL 窗口再发：刷新依赖窗口过程 WIN_WindowProc
-         * 处理该消息。
+         * 处理该消息。是否启用由规则的 refresh_displays 决定。
          */
         DWORD WINAPI RefreshDisplaysThread(LPVOID) {
             for (int i = 0; i < 2400; ++i) { // 最多等 120 秒（50ms x 2400）
@@ -257,7 +257,9 @@ namespace waf {
             HkLog("=== %d component(s) active ===", installed);
 
             // 装了 hook 才值得刷新缓存：刷新时 GetDeviceCaps 必须已经被接住。
-            if (installed > 0 && env.strategy == "sdl2-gdi") {
+            // 刷新方式由规则决定，不再按 strategy 硬编码；未知取值报出来，
+            // 便于发现拼写错误。
+            if (installed > 0 && rule->refreshDisplays == "sdl") {
                 HANDLE t = CreateThread(
                     nullptr,
                     0,
@@ -268,6 +270,11 @@ namespace waf {
                 );
                 if (t)
                     CloseHandle(t);
+            } else if (rule->refreshDisplays != "none") {
+                HkLog(
+                    "unknown refresh_displays '%s' (ignored)",
+                    rule->refreshDisplays.c_str()
+                );
             }
             return 0;
         }

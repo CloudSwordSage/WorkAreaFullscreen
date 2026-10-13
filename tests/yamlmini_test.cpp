@@ -156,7 +156,8 @@ static void TestAppConfig() {
     assert(back.targets[0].executable == "stellaris.exe");
     assert(back.targets[0].geometry == "work_area");
     assert(back.targets[0].hooks.size() == 3);
-    assert(back.targets[0].injectDelayMs == 400); // 默认注入延迟
+    assert(back.targets[0].injectDelayMs == 400);     // 默认注入延迟
+    assert(back.targets[0].refreshDisplays == "sdl"); // 默认规则的刷新方式
     assert(back.targets[0].hooks[0].name == "GetMonitorInfoW");
     assert(back.targets[0].hooks[1].name == "GetDeviceCaps");
     assert(back.targets[0].hooks[2].name == "EnumDisplaySettingsW");

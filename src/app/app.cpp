@@ -36,6 +36,8 @@ namespace waf::app {
             "#\n"
             "# geometry          work_area = "
             "窗口铺满工作区（保留任务栏）；monitor = 显示器整块区域\n"
+            "# refresh_displays  none = 不刷新（默认）；sdl = 注入后向 SDL "
+            "窗口发 WM_DISPLAYCHANGE 重建显示器缓存\n"
             "# 启动代理的挂载状态存放在注册表（IFEO）里，不写进本文件。\n"
             "\n";
 
