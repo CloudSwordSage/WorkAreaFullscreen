@@ -230,6 +230,18 @@ namespace waf {
         return nullptr;
     }
 
+    bool StrategyHasCallsites(
+        const StrategyTable & table,
+        const std::string & strategy,
+        const std::string & component
+    ) {
+        const auto st = table.find(strategy);
+        if (st == table.end())
+            return false;
+        const auto comp = st->second.find(component);
+        return comp != st->second.end() && !comp->second.empty();
+    }
+
     TargetRule NewDefaultRule(const std::string & executable) {
         TargetRule r;
         r.executable = executable;

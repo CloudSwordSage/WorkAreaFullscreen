@@ -27,6 +27,24 @@ namespace waf {
      */
     using StrategyTable = std::map<std::string, StrategyCallsites>;
 
+    /**
+     * 策略表里是否声明了该组件的调用点 RVA。
+     *
+     * scope=callsite 的语义是「只对策略表记录的调用点生效」；表中没有该组件
+     * 的调用点时，callsite 永远命不中，等同不改写，故该设置不成立（见
+     * HookSetting::scope）。
+     *
+     * @param table     调用点表。
+     * @param strategy  策略名。
+     * @param component 组件名（HkComponent::name）。
+     * @return 策略存在且该组件的 RVA 列表非空为 true。
+     */
+    bool StrategyHasCallsites(
+        const StrategyTable & table,
+        const std::string & strategy,
+        const std::string & component
+    );
+
     /** 单个 hook 组件的配置。 */
     struct HookSetting {
             std::string name; ///< 组件名，与 HkComponent::name 一致

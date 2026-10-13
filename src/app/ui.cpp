@@ -82,6 +82,26 @@ namespace waf::app {
         void DrawTargets(State & st) {
             AppConfig & cfg = st.config;
 
+            // scope=callsite 要求当前策略表里有该组件的调用点 RVA；没有时该
+            // 设置无意义（调用永远命不中）。统一收窄为 global，未展开的规则
+            // 也一并处理，避免折叠状态下漏改。
+            bool scopeFixed = false;
+            for (auto & t : cfg.targets)
+                for (auto & h : t.hooks) {
+                    if (h.scope == "global")
+                        continue;
+                    if (StrategyHasCallsites(
+                            cfg.strategies,
+                            t.strategy,
+                            h.name
+                        ))
+                        continue;
+                    h.scope = "global";
+                    scopeFixed = true;
+                }
+            if (scopeFixed)
+                st.configDirty = true;
+
             if (ImGui::Checkbox("启用（HookLauncher 读取）", &cfg.enabled))
                 st.configDirty = true;
             ImGui::Spacing();
@@ -188,19 +208,48 @@ namespace waf::app {
                     dirty |= ImGui::Checkbox(hs.name.c_str(), &hs.enabled);
                     ImGui::SameLine(220);
                     ImGui::SetNextItemWidth(120);
-                    int scope = (hs.scope == "global") ? 1 : 0;
-                    if (ImGui::Combo("##scope", &scope, "callsite\0global\0")) {
-                        hs.scope = scope ? "global" : "callsite";
-                        dirty = true;
+
+                    // 策略表没有该组件的调用点 RVA 时不允许选 callsite：上面的
+                    // 收窄已把这类取值改成 global，这里只禁用该项并说明原因。
+                    const bool canCallsite = StrategyHasCallsites(
+                        cfg.strategies,
+                        t.strategy,
+                        hs.name
+                    );
+                    if (ImGui::BeginCombo(
+                            "##scope",
+                            (hs.scope == "global") ? "global" : "callsite"
+                        )) {
+                        if (ImGui::Selectable(
+                                "callsite",
+                                hs.scope != "global",
+                                canCallsite ? ImGuiSelectableFlags_None
+                                            : ImGuiSelectableFlags_Disabled
+                            )) {
+                            hs.scope = "callsite";
+                            dirty = true;
+                        }
+                        if (ImGui::Selectable("global", hs.scope == "global")) {
+                            hs.scope = "global";
+                            dirty = true;
+                        }
+                        ImGui::EndCombo();
                     }
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip(
-                            "callsite：只对策略表记录的调用点生效\n"
-                            "global：对该 API 的所有调用生效"
+                            canCallsite
+                                ? "callsite：只对策略表记录的调用点生效\n"
+                                  "global：对该 API 的所有调用生效"
+                                : "策略表没有该组件的调用点 RVA，无法使用 "
+                                  "callsite"
                         );
                     ImGui::SameLine();
                     if (ImGui::SmallButton("移除"))
                         removeHook = static_cast<int>(h);
+                    if (!canCallsite) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("策略无该组件 RVA");
+                    }
                     ImGui::PopID();
                 }
                 if (removeHook >= 0) {

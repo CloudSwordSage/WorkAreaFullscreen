@@ -246,6 +246,28 @@ static void TestStrategyTable() {
     assert(waf::HkStrategyCallsites("sdl2-gdi", "GetDeviceCaps").size() == 1);
 }
 
+// callsite 的前提：策略表里有该组件的调用点 RVA。
+static void TestStrategyHasCallsites() {
+    waf::AppConfig cfg = waf::DefaultConfig();
+    assert(
+        waf::StrategyHasCallsites(cfg.strategies, "sdl2-gdi", "GetDeviceCaps")
+    );
+    assert(!waf::StrategyHasCallsites(cfg.strategies, "nope", "GetDeviceCaps"));
+    assert(!waf::StrategyHasCallsites(cfg.strategies, "sdl2-gdi", "Unknown"));
+
+    // 组件存在但 RVA 列表为空 -> 无调用点，callsite 不成立
+    cfg.strategies["sdl2-gdi"]["GetDeviceCaps"] = {};
+    assert(
+        !waf::StrategyHasCallsites(cfg.strategies, "sdl2-gdi", "GetDeviceCaps")
+    );
+
+    // 空策略表
+    cfg.strategies["empty"] = {};
+    assert(
+        !waf::StrategyHasCallsites(cfg.strategies, "empty", "GetDeviceCaps")
+    );
+}
+
 // 空容器（Dump 会写成 [] / {}）必须能被读回：界面允许把规则/策略/RVA 删空。
 static void TestEmptyContainers() {
     Node n;
@@ -298,6 +320,7 @@ int main() {
     TestScalarsAndQuotes();
     TestAppConfig();
     TestStrategyTable();
+    TestStrategyHasCallsites();
     TestEmptyContainers();
     TestRenameStrategy();
     TestErrors();
