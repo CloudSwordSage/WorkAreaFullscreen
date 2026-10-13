@@ -38,7 +38,7 @@ targets:
         scope: callsite
       EnumDisplaySettingsW:
         enabled: true
-        scope: global
+        scope: callsite
     safety:
       verify_callsite: true
 
@@ -53,6 +53,10 @@ strategies:
     GetDeviceCaps:
       - 0x1DFBB35
       - 0x1DFBB45
+    EnumDisplaySettingsW:
+      - 0x1DFAE30
+      - 0x1DFB022
+      - 0x1DFBA98
 ```
 
 挂载启动代理（需要管理员权限；界面里点「挂载」等价）：
@@ -105,9 +109,9 @@ HookLauncher.exe --install "<游戏目录>\stellaris.exe"
 | --- | --- |
 | `GetMonitorInfoW` | `0x1DFAAF5`、`0x1DFABA1`、`0x1DFB491`、`0x1DFE184` |
 | `GetDeviceCaps` | `0x1DFBB35`、`0x1DFBB45` |
+| `EnumDisplaySettingsW` | `0x1DFAE30`、`0x1DFB022`、`0x1DFBA98` |
 
-`scope: callsite` 只对表中的调用点生效，游戏或系统其它地方对同一 API 的调用原样放行；
-`EnumDisplaySettingsW` 的调用点不在表中，只能按 `scope: global` 处理。
+`scope: callsite` 只对表中的调用点生效，游戏或系统其它地方对同一 API 的调用原样放行。
 
 `safety.verify_callsite: true` 会在注入前按 RVA 核对指令形态（`call qword ptr [rip+disp32]`），
 任一调用点对不上就整条组件回退为不改写。这样游戏更新换了版本、RVA 失配时，后果只是「功能不生效」，

@@ -160,7 +160,7 @@ targets:
         scope: callsite
       EnumDisplaySettingsW:
         enabled: true
-        scope: global
+        scope: callsite
     safety:
       verify_callsite: true     # 注入前校验调用点指令形态
 
@@ -175,6 +175,10 @@ strategies:
     GetDeviceCaps:
       - 0x1DFBB35
       - 0x1DFBB45
+    EnumDisplaySettingsW:
+      - 0x1DFAE30
+      - 0x1DFB022
+      - 0x1DFBA98
 ```
 
 **`scope`**
