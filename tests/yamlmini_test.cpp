@@ -4,6 +4,7 @@
 #include <string>
 
 #include "waf/config.h"
+#include "waf/runtime.h"
 #include "waf/yamlmini.h"
 
 using yamlmini::Node;
@@ -164,6 +165,15 @@ static void TestAppConfig() {
     assert(back.targets[0].hooks[0].params.find("fields") != nullptr);
     assert(back.targets[0].hooks[1].params.find("indices") != nullptr);
 
+    // 策略调用点表来自配置，往返后 RVA 保持十六进制数值
+    assert(back.strategies.count("sdl2-gdi") == 1);
+    const auto & gmi = back.strategies.at("sdl2-gdi").at("GetMonitorInfoW");
+    assert(gmi.size() == 4);
+    assert(gmi[0] == 0x1DFAAF5 && gmi[3] == 0x1DFE184);
+    const auto & gdc = back.strategies.at("sdl2-gdi").at("GetDeviceCaps");
+    assert(gdc.size() == 2);
+    assert(gdc[0] == 0x1DFBB35 && gdc[1] == 0x1DFBB45);
+
     // 规则匹配：不区分大小写，且只看启用中的规则
     assert(back.FindRule("STELLARIS.EXE") != nullptr);
     assert(back.FindRule("other.exe") == nullptr);
@@ -182,6 +192,50 @@ static void TestErrors() {
     waf::AppConfig cfg;
     std::string cerr;
     assert(!waf::AppConfig::Parse("targets: 3\n", cfg, cerr));
+
+    // strategies 段里的 RVA 必须是十六进制/十进制数值
+    assert(!waf::AppConfig::Parse(
+        "strategies:\n  sdl2-gdi:\n    GetDeviceCaps:\n      - nope\n",
+        cfg,
+        cerr
+    ));
+    assert(!waf::AppConfig::Parse("strategies: 3\n", cfg, cerr));
+}
+
+// 策略调用点表：从配置装载 -> 按策略/组件查询 -> 调用点命中判定。
+static void TestStrategyTable() {
+    waf::AppConfig cfg = waf::DefaultConfig();
+    waf::HkLoadStrategies(cfg.strategies);
+
+    const std::vector<ULONG_PTR> & gmi =
+        waf::HkStrategyCallsites("sdl2-gdi", "GetMonitorInfoW");
+    assert(gmi.size() == 4);
+    assert(gmi[0] == 0x1DFAAF5 && gmi[3] == 0x1DFE184);
+    assert(waf::HkStrategyCallsites("sdl2-gdi", "GetDeviceCaps").size() == 2);
+    // 未知策略/组件返回空表
+    assert(waf::HkStrategyCallsites("nope", "GetMonitorInfoW").empty());
+    assert(waf::HkStrategyCallsites("sdl2-gdi", "nope").empty());
+
+    waf::HkEnv env;
+    env.targetMod = reinterpret_cast<HMODULE>(0x10000000);
+    env.strategy = "sdl2-gdi";
+    // 命中：返回地址 = 模块基址 + 调用指令 RVA + 6（call qword ptr
+    // [rip+disp32]）
+    void * hit = reinterpret_cast<void *>(
+        static_cast<ULONG_PTR>(0x10000000) + 0x1DFAAF5 + 6
+    );
+    assert(waf::HkFromKnownCallsite(env, "GetMonitorInfoW", hit));
+    void * miss = reinterpret_cast<void *>(
+        static_cast<ULONG_PTR>(0x10000000) + 0x1DFAAF5
+    );
+    assert(!waf::HkFromKnownCallsite(env, "GetMonitorInfoW", miss));
+
+    // 重新装载后旧表失效（换版本时以配置为准）
+    waf::AppConfig other;
+    other.strategies["sdl2-gdi"]["GetDeviceCaps"] = {0x1000};
+    waf::HkLoadStrategies(other.strategies);
+    assert(waf::HkStrategyCallsites("sdl2-gdi", "GetMonitorInfoW").empty());
+    assert(waf::HkStrategyCallsites("sdl2-gdi", "GetDeviceCaps").size() == 1);
 }
 
 int main() {
@@ -189,6 +243,7 @@ int main() {
     TestDumpRoundTrip();
     TestScalarsAndQuotes();
     TestAppConfig();
+    TestStrategyTable();
     TestErrors();
     printf("yamlmini + config self-check: OK\n");
     return 0;

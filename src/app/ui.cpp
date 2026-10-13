@@ -124,7 +124,9 @@ namespace waf::app {
                 ImGui::SetNextItemWidth(150);
                 InputString("策略", t.strategy);
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("提供与目标版本绑定的调用点 RVA 表。");
+                    ImGui::SetTooltip(
+                        "引用配置里 strategies: 下的调用点 RVA 表。"
+                    );
 
                 ImGui::SetNextItemWidth(150);
                 if (ImGui::InputInt("注入延迟 (ms)", &t.injectDelayMs))

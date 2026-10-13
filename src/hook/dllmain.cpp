@@ -192,6 +192,23 @@ namespace waf {
                 env.geometry.c_str()
             );
 
+            // 装载配置里的策略调用点表；scope=callsite 的组件据此判定与校验。
+            waf::HkLoadStrategies(cfg.strategies);
+            const auto st = cfg.strategies.find(env.strategy);
+            if (st == cfg.strategies.end()) {
+                HkLog(
+                    "warning: strategy '%s' 未在配置 strategies 中定义，"
+                    "callsite 组件将全部回退",
+                    env.strategy.c_str()
+                );
+            } else {
+                HkLog(
+                    "strategy '%s': 表中 %zu 个组件",
+                    env.strategy.c_str(),
+                    st->second.size()
+                );
+            }
+
             const MH_STATUS ms = MH_Initialize();
             HkLog("MH_Initialize -> %d", (int)ms);
             if (ms != MH_OK)

@@ -1,6 +1,9 @@
 // config.cpp - 配置模型与 YAML 的互转。
 #include "waf/config.h"
 
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 namespace waf {
@@ -25,6 +28,33 @@ namespace waf {
         }
         std::string StrOf(const yamlmini::Node * n, const char * def) {
             return n ? n->str(def) : std::string(def);
+        }
+
+        /** 解析 RVA 标量（`0x` 十六进制或十进制）。 @return 非法返回 false。 */
+        bool RvaOf(const yamlmini::Node & n, ULONG_PTR * out) {
+            const std::string s = n.str();
+            if (s.empty())
+                return false;
+            errno = 0;
+            char * end = nullptr;
+            const unsigned long long v = _strtoui64(s.c_str(), &end, 0);
+            if (end == s.c_str() || *end != '\0' || errno != 0)
+                return false;
+            *out = static_cast<ULONG_PTR>(v);
+            return true;
+        }
+
+        /** RVA 序列化为 YAML 标量（十六进制）。 */
+        std::string Hex(ULONG_PTR v) {
+            char buf[32];
+            _snprintf_s(
+                buf,
+                sizeof(buf),
+                _TRUNCATE,
+                "0x%llX",
+                static_cast<unsigned long long>(v)
+            );
+            return buf;
         }
 
     } // namespace
@@ -87,6 +117,42 @@ namespace waf {
                 out.targets.push_back(std::move(r));
             }
         }
+
+        // 顶层 strategies: 策略名 -> 组件 -> 调用指令 RVA 序列。目标规则按
+        // strategy 名引用；从配置装载而非编译进代码，新增版本无需重新编译。
+        const yamlmini::Node * strategies = root.find("strategies");
+        if (strategies) {
+            if (strategies->kind != yamlmini::Node::Map) {
+                err = "strategies: 期望键值映射";
+                return false;
+            }
+            for (const auto & st : strategies->map) {
+                if (st.second.kind != yamlmini::Node::Map) {
+                    err = "strategies." + st.first + ": 期望键值映射";
+                    return false;
+                }
+                StrategyCallsites callsites;
+                for (const auto & comp : st.second.map) {
+                    if (comp.second.kind != yamlmini::Node::Seq) {
+                        err = "strategies." + st.first + "." + comp.first +
+                              ": 期望序列";
+                        return false;
+                    }
+                    std::vector<ULONG_PTR> rvas;
+                    for (const auto & item : comp.second.seq) {
+                        ULONG_PTR rva = 0;
+                        if (!RvaOf(item, &rva)) {
+                            err = "strategies." + st.first + "." + comp.first +
+                                  ": 非法 RVA '" + item.str() + "'";
+                            return false;
+                        }
+                        rvas.push_back(rva);
+                    }
+                    callsites[comp.first] = std::move(rvas);
+                }
+                out.strategies[st.first] = std::move(callsites);
+            }
+        }
         return true;
     }
 
@@ -134,6 +200,24 @@ namespace waf {
             targets.seq.push_back(std::move(tn));
         }
         root.map.emplace_back("targets", std::move(targets));
+
+        if (!this->strategies.empty()) {
+            yamlmini::Node strategies;
+            strategies.kind = yamlmini::Node::Map;
+            for (const auto & st : this->strategies) {
+                yamlmini::Node components;
+                components.kind = yamlmini::Node::Map;
+                for (const auto & comp : st.second) {
+                    yamlmini::Node list;
+                    list.kind = yamlmini::Node::Seq;
+                    for (ULONG_PTR rva : comp.second)
+                        list.seq.push_back(Scalar(Hex(rva)));
+                    components.map.emplace_back(comp.first, std::move(list));
+                }
+                strategies.map.emplace_back(st.first, std::move(components));
+            }
+            root.map.emplace_back("strategies", std::move(strategies));
+        }
 
         return header + yamlmini::Dump(root);
     }
@@ -189,6 +273,16 @@ namespace waf {
 
     AppConfig DefaultConfig() {
         AppConfig c;
+
+        // 默认策略表：调用点 RVA 绑定 stellaris.exe + 静态链接的 SDL 2.26.5
+        // 特定版本；定位过程与约束见 docs/stellaris.md。verify_callsite 会用
+        // 指令字节与 IAT 槽复核，不一致即回退，版本变化不会写坏进程。
+        // 这份表只在首次生成配置文件时写入；已有配置以文件内容为准。
+        StrategyCallsites & sdl2gdi = c.strategies["sdl2-gdi"];
+        sdl2gdi["GetMonitorInfoW"] =
+            {0x1DFAAF5, 0x1DFABA1, 0x1DFB491, 0x1DFE184};
+        sdl2gdi["GetDeviceCaps"] = {0x1DFBB35, 0x1DFBB45};
+
         c.targets.push_back(NewDefaultRule("stellaris.exe"));
         // 群星的 desktop_mode 只在视频初始化或收到 WM_DISPLAYCHANGE 时重建，
         // 需要 SDL 刷新方式；通用模板 NewDefaultRule 默认 "none"。

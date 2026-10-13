@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "waf/config.h"
+
 namespace waf {
 
     /** 打开 %TEMP%\WorkAreaFullscreen-hook.log（覆盖写）；DLL
@@ -23,7 +25,17 @@ namespace waf {
     };
 
     /**
-     * 查询策略内置的调用点 RVA 表。
+     * 装载策略调用点表（进程级；覆盖上一次装载的结果）。
+     *
+     * 注入前调用一次；之后的 HkStrategyCallsites / HkFromKnownCallsite
+     * 都按此表查询。表来自配置的 `strategies:` 段，新增目标版本不必重新编译。
+     *
+     * @param strategies 策略名到调用点表的映射（见 AppConfig::strategies）。
+     */
+    void HkLoadStrategies(const StrategyTable & strategies);
+
+    /**
+     * 查询已装载的策略调用点表。
      *
      * @param strategy  策略名。
      * @param component 组件名（与 HkComponent::name 一致）。

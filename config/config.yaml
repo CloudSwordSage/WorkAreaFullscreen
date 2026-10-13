@@ -7,6 +7,8 @@
 # refresh_displays  显示器缓存刷新方式：none = 不刷新（默认）；sdl = 注入后向目标的 SDL
 #                   窗口发一次 WM_DISPLAYCHANGE，触发 SDL 重建显示器缓存
 #                   （desktop_mode 只在视频初始化或收到该消息时枚举）。
+# strategies        策略名 -> 组件 -> 调用指令 RVA 列表（相对目标映像基址）；目标规则按
+#                   strategy 名引用。新增目标版本只改这里，无需重新编译。
 # 启动代理的挂载状态存放在注册表（IFEO）里，不写进本文件。
 
 enabled: true
@@ -35,3 +37,16 @@ targets:
         scope: global
     safety:
       verify_callsite: true
+
+# 调用点 RVA 表：绑定 stellaris.exe + 静态链接的 SDL 2.26.5。safety.verify_callsite
+# 会按指令字节与 IAT 槽复核，不一致即整条组件回退，不会写坏进程。
+strategies:
+  sdl2-gdi:
+    GetMonitorInfoW:
+      - 0x1DFAAF5
+      - 0x1DFABA1
+      - 0x1DFB491
+      - 0x1DFE184
+    GetDeviceCaps:
+      - 0x1DFBB35
+      - 0x1DFBB45

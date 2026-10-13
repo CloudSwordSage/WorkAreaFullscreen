@@ -15,34 +15,8 @@ namespace waf {
         DWORD g_t0 = 0;
 
         // ---------------- 策略表 ----------------
-        struct CallsiteEntry {
-                const char * component;
-                std::vector<ULONG_PTR> rvas;
-        };
-        struct StrategyEntry {
-                const char * name;
-                std::vector<CallsiteEntry> entries;
-        };
-
-        /**
-         * 内置策略表。
-         *
-         * RVA 为调用指令地址，绑定 stellaris.exe + 静态链接的 SDL 2.26.5
-         * 特定版本；定位过程与 约束见 docs/stellaris.md。安装前的
-         * verify_callsite 会用指令字节与 IAT 槽复核这些值，
-         * 不一致即回退，所以版本变化不会造成误改。
-         */
-        const std::vector<StrategyEntry> & Strategies() {
-            static const std::vector<StrategyEntry> s = {
-                {"sdl2-gdi",
-                 {
-                     {"GetMonitorInfoW",
-                      {0x1DFAAF5, 0x1DFABA1, 0x1DFB491, 0x1DFE184}},
-                     {"GetDeviceCaps", {0x1DFBB35, 0x1DFBB45}},
-                 }},
-            };
-            return s;
-        }
+        // 由 HkLoadStrategies 在注入前从配置装载，运行期只读查询。
+        StrategyTable g_strategies;
 
         bool SafeReadPtr(void * const * slot, void ** out) {
             __try {
@@ -145,19 +119,22 @@ namespace waf {
             LeaveCriticalSection(&g_cs);
     }
 
+    void HkLoadStrategies(const StrategyTable & strategies) {
+        g_strategies = strategies;
+    }
+
     const std::vector<ULONG_PTR> & HkStrategyCallsites(
         const std::string & strategy,
         const std::string & component
     ) {
         static const std::vector<ULONG_PTR> kEmpty;
-        for (const auto & st : Strategies()) {
-            if (strategy != st.name)
-                continue;
-            for (const auto & e : st.entries)
-                if (component == e.component)
-                    return e.rvas;
-        }
-        return kEmpty;
+        const auto st = g_strategies.find(strategy);
+        if (st == g_strategies.end())
+            return kEmpty;
+        const auto comp = st->second.find(component);
+        if (comp == st->second.end())
+            return kEmpty;
+        return comp->second;
     }
 
     bool HkFromKnownCallsite(
