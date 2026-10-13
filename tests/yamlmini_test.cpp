@@ -173,6 +173,11 @@ static void TestAppConfig() {
     const auto & gdc = back.strategies.at("sdl2-gdi").at("GetDeviceCaps");
     assert(gdc.size() == 2);
     assert(gdc[0] == 0x1DFBB35 && gdc[1] == 0x1DFBB45);
+    const auto & eds = back.strategies.at("sdl2-gdi").at("EnumDisplaySettingsW");
+    assert(eds.size() == 3);
+    assert(eds[0] == 0x1DFAE30 && eds[2] == 0x1DFBA98);
+    // 群星默认规则把该组件收窄为 callsite（通用模板默认 global）
+    assert(back.targets[0].hooks[2].scope == "callsite");
 
     // 规则匹配：不区分大小写，且只看启用中的规则
     assert(back.FindRule("STELLARIS.EXE") != nullptr);
@@ -212,6 +217,9 @@ static void TestStrategyTable() {
     assert(gmi.size() == 4);
     assert(gmi[0] == 0x1DFAAF5 && gmi[3] == 0x1DFE184);
     assert(waf::HkStrategyCallsites("sdl2-gdi", "GetDeviceCaps").size() == 2);
+    assert(
+        waf::HkStrategyCallsites("sdl2-gdi", "EnumDisplaySettingsW").size() == 3
+    );
     // 未知策略/组件返回空表
     assert(waf::HkStrategyCallsites("nope", "GetMonitorInfoW").empty());
     assert(waf::HkStrategyCallsites("sdl2-gdi", "nope").empty());

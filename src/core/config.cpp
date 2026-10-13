@@ -264,7 +264,7 @@ namespace waf {
         // 逐项填充，不经 GetDeviceCaps。
         HookSetting eds;
         eds.name = "EnumDisplaySettingsW";
-        eds.scope = "global"; // 策略表里没有该组件的调用点，只能按全局处理
+        eds.scope = "global"; // 通用模板不绑定策略表；群星默认见 DefaultConfig
         eds.params.kind = yamlmini::Node::Map;
         r.hooks.push_back(std::move(eds));
 
@@ -282,11 +282,17 @@ namespace waf {
         sdl2gdi["GetMonitorInfoW"] =
             {0x1DFAAF5, 0x1DFABA1, 0x1DFB491, 0x1DFE184};
         sdl2gdi["GetDeviceCaps"] = {0x1DFBB35, 0x1DFBB45};
+        sdl2gdi["EnumDisplaySettingsW"] = {0x1DFAE30, 0x1DFB022, 0x1DFBA98};
 
         c.targets.push_back(NewDefaultRule("stellaris.exe"));
         // 群星的 desktop_mode 只在视频初始化或收到 WM_DISPLAYCHANGE 时重建，
         // 需要 SDL 刷新方式；通用模板 NewDefaultRule 默认 "none"。
         c.targets[0].refreshDisplays = "sdl";
+        // 群星的 EnumDisplaySettingsW 调用点已定位（SDL Win32 后端 3 处），
+        // 上面已给出表项，这里收窄为 callsite；通用模板默认 global。
+        for (auto & h : c.targets[0].hooks)
+            if (h.name == "EnumDisplaySettingsW")
+                h.scope = "callsite";
         return c;
     }
 

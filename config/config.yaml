@@ -34,7 +34,7 @@ targets:
         scope: callsite
       EnumDisplaySettingsW:
         enabled: true
-        scope: global
+        scope: callsite
     safety:
       verify_callsite: true
 
@@ -50,3 +50,7 @@ strategies:
     GetDeviceCaps:
       - 0x1DFBB35
       - 0x1DFBB45
+    EnumDisplaySettingsW:
+      - 0x1DFAE30
+      - 0x1DFB022
+      - 0x1DFBA98
