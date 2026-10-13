@@ -1,6 +1,7 @@
 _mh/
 /stellaris*.md
 vibeguard*.json
+AGENTS.md
 build/
 dist/
 imgui.ini
