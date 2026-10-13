@@ -187,12 +187,22 @@ static void TestAppConfig() {
 }
 
 static void TestErrors() {
+    // 标量序列项（`- item`）是支持的语法：indices 等配置依赖它，不应报错。
+    Node seq;
+    std::string seqErr;
+    assert(
+        yamlmini::Parse("targets:\n  - executable stellaris.exe\n", seq, seqErr)
+    );
+    const Node * items = seq.find("targets");
+    assert(items && items->kind == Node::Seq && items->seq.size() == 1);
+    assert(items->seq[0].kind == Node::Scalar);
+    assert(items->seq[0].str() == "executable stellaris.exe");
+
+    // 缺少 ':' 的映射行应报错，错误信息带 1-based 行号。
     Node n;
     std::string err;
-    assert(
-        !yamlmini::Parse("targets:\n  - executable stellaris.exe\n", n, err)
-    );
-    assert(!err.empty());
+    assert(!yamlmini::Parse("targets:\n  executable stellaris.exe\n", n, err));
+    assert(err.find("line 2") != std::string::npos);
 
     waf::AppConfig cfg;
     std::string cerr;
