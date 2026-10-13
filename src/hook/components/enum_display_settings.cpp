@@ -126,7 +126,7 @@ namespace waf {
             "EnumDisplaySettingsW",
             reinterpret_cast<void *>(Detour_EnumDisplaySettingsW),
             reinterpret_cast<void **>(&o_EnumDisplaySettingsW),
-            "scope: global\n", // 策略表里没有该组件的调用点，只能按全局处理
+            "scope: global\n", // 通用默认：新规则不绑定策略表；群星默认见 DefaultConfig
             Configure,
             Verify,
         };
