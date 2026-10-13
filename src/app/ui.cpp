@@ -1,4 +1,4 @@
-// ui.cpp - ImGui 界面：规则编辑 + 启动代理（IFEO）管理。
+// ui.cpp - ImGui 界面：规则编辑 + RVA 策略表 + 启动代理（IFEO）管理。
 //
 // 本程序不监听进程、不注入；「IFEO 管理」页负责把启动代理挂到目标上。
 #include "app/app.h"
@@ -37,6 +37,19 @@ namespace waf::app {
                 &s
             );
         }
+
+        /** 去掉首尾空白；全空白时返回空串。 */
+        std::string Trim(const std::string & s) {
+            const size_t begin = s.find_first_not_of(" \t\r\n");
+            if (begin == std::string::npos)
+                return std::string();
+            const size_t end = s.find_last_not_of(" \t\r\n");
+            return s.substr(begin, end - begin + 1);
+        }
+
+        // 「RVA 配置」页新增策略/组件时的名字输入缓冲（只在主线程访问）。
+        std::string g_newStrategy;
+        std::string g_newComponent;
 
         // 用组件目录里的默认配置构造一条 HookSetting：YAML 里的 scope
         // 提到结构字段，其余进 params。
@@ -239,6 +252,153 @@ namespace waf::app {
             }
         }
 
+        // ---- 页：RVA 配置 ----
+
+        /**
+         * 策略调用点表编辑：策略名 -> 组件 -> RVA 列表。
+         *
+         * 只做增删条目与改值，不做重命名（map 的键不可直接改，删了重建即可）。
+         * 列表为空表示该组件没有已知调用点，callsite 组件会整条回退。
+         */
+        void DrawStrategies(State & st) {
+            StrategyTable & table = st.config.strategies;
+
+            ImGui::TextDisabled(
+                "调用点 RVA 表：策略名 -> 组件 -> 调用指令 "
+                "RVA（相对目标映像基址的\n"
+                "十六进制地址）。规则的「策略」按名字引用一张表；scope="
+                "callsite 的\n"
+                "组件按表判定调用点，verify_callsite 按表校验指令形态。"
+            );
+            ImGui::Spacing();
+
+            ImGui::SetNextItemWidth(200);
+            InputString("##newstrategy", g_newStrategy);
+            ImGui::SameLine();
+            if (ImGui::Button("新增策略")) {
+                const std::string name = Trim(g_newStrategy);
+                if (!name.empty() && table.find(name) == table.end()) {
+                    table[name];
+                    st.configDirty = true;
+                }
+                g_newStrategy.clear();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("共 %zu 个策略", table.size());
+            ImGui::Spacing();
+
+            std::string removeStrategy;
+            for (auto & entry : table) {
+                ImGui::PushID(entry.first.c_str());
+
+                ImGui::SeparatorText(entry.first.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("删除策略"))
+                    removeStrategy = entry.first;
+
+                bool dirty = false;
+                StrategyCallsites & components = entry.second;
+
+                std::string removeComponent;
+                for (auto & comp : components) {
+                    ImGui::PushID(comp.first.c_str());
+
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted(comp.first.c_str());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("移除组件"))
+                        removeComponent = comp.first;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "组件名须与该 hook 组件的 name 一致。"
+                        );
+
+                    std::vector<ULONG_PTR> & rvas = comp.second;
+                    ImGui::Indent();
+                    int removeRva = -1;
+                    for (size_t i = 0; i < rvas.size(); ++i) {
+                        ImGui::PushID(static_cast<int>(i));
+                        ImGui::SetNextItemWidth(120);
+                        ImU64 v = static_cast<ImU64>(rvas[i]);
+                        if (ImGui::InputScalar(
+                                "##rva",
+                                ImGuiDataType_U64,
+                                &v,
+                                nullptr,
+                                nullptr,
+                                "%llX",
+                                ImGuiInputTextFlags_CharsHexadecimal
+                            )) {
+                            rvas[i] = static_cast<ULONG_PTR>(v);
+                            dirty = true;
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("移除"))
+                            removeRva = static_cast<int>(i);
+                        ImGui::PopID();
+                    }
+                    if (removeRva >= 0) {
+                        rvas.erase(rvas.begin() + removeRva);
+                        dirty = true;
+                    }
+                    if (ImGui::SmallButton("新增 RVA")) {
+                        rvas.push_back(0);
+                        dirty = true;
+                    }
+                    if (rvas.empty()) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("（空表：该组件会回退为不改写）");
+                    }
+                    ImGui::Unindent();
+                    ImGui::Spacing();
+
+                    ImGui::PopID();
+                }
+
+                if (!removeComponent.empty()) {
+                    components.erase(removeComponent);
+                    dirty = true;
+                }
+
+                if (ImGui::Button("新增组件"))
+                    ImGui::OpenPopup("##addcomp");
+                if (ImGui::BeginPopup("##addcomp")) {
+                    ImGui::TextDisabled(
+                        "组件名须与 hook 组件名一致，如 GetDeviceCaps"
+                    );
+                    ImGui::SetNextItemWidth(220);
+                    InputString("##newcomponent", g_newComponent);
+                    if (ImGui::Button("添加")) {
+                        const std::string name = Trim(g_newComponent);
+                        if (!name.empty() &&
+                            components.find(name) == components.end()) {
+                            components[name];
+                            dirty = true;
+                        }
+                        g_newComponent.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
+
+                if (dirty)
+                    st.configDirty = true;
+
+                ImGui::Spacing();
+                ImGui::PopID();
+            }
+
+            if (!removeStrategy.empty()) {
+                table.erase(removeStrategy);
+                st.configDirty = true;
+            }
+
+            if (table.empty())
+                ImGui::TextDisabled(
+                    "还没有策略表。scope=callsite 的组件需要在这里定义调用点。"
+                );
+        }
+
         // ---- 页：IFEO 管理 ----
 
         void DrawIfeoManager(State & st) {
@@ -330,6 +490,10 @@ namespace waf::app {
         if (ImGui::BeginTabBar("##tabs")) {
             if (ImGui::BeginTabItem("规则")) {
                 DrawTargets(st);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("RVA 配置")) {
+                DrawStrategies(st);
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("IFEO 管理")) {

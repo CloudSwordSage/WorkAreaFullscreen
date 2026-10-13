@@ -125,6 +125,10 @@ namespace yamlmini {
                         if (i_ < L_.size() && L_[i_].indent > indent)
                             if (!Block(L_[i_].indent, child, err))
                                 return false;
+                    } else if (rest == "[]") {
+                        child.kind = Node::Seq; // 空序列
+                    } else if (rest == "{}") {
+                        child.kind = Node::Map; // 空映射
                     } else {
                         child.kind = Node::Scalar;
                         child.scalar = Unquote(rest);
@@ -146,6 +150,8 @@ namespace yamlmini {
                             if (i_ < L_.size() && L_[i_].indent > indent)
                                 if (!Block(L_[i_].indent, item, err))
                                     return false;
+                        } else if (rest == "[]" || rest == "{}") {
+                            item.kind = (rest == "[]") ? Node::Seq : Node::Map;
                         } else {
                             std::string key, val;
                             if (SplitKey(rest, key, val)) {
@@ -158,6 +164,10 @@ namespace yamlmini {
                                         L_[i_].indent > indent)
                                         if (!Block(L_[i_].indent, first, err))
                                             return false;
+                                } else if (val == "[]") {
+                                    first.kind = Node::Seq;
+                                } else if (val == "{}") {
+                                    first.kind = Node::Map;
                                 } else {
                                     first.kind = Node::Scalar;
                                     first.scalar = Unquote(val);
