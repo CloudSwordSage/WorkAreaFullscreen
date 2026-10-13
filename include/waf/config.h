@@ -130,4 +130,16 @@ namespace waf {
         const std::string & to
     );
 
+    /**
+     * 收窄不成立的 `scope=callsite` 设置。
+     *
+     * 规则引用的策略表里没有该组件的调用点 RVA 时，callsite 永远命不中
+     * （等同不改写），该设置不成立；统一改为 `global`。用于装载配置时纠正
+     * 手工编辑或旧版本留下的无效项。
+     *
+     * @param cfg 待检查的配置，就地修改。
+     * @return 发生任何修改返回 true。
+     */
+    bool EnforceCallsiteScopes(AppConfig & cfg);
+
 } // namespace waf

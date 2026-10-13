@@ -39,7 +39,8 @@ namespace waf::app {
             "# refresh_displays  none = 不刷新（默认）；sdl = 注入后向 SDL "
             "窗口发 WM_DISPLAYCHANGE 重建显示器缓存\n"
             "# strategies        策略名 -> 组件 -> 调用指令 RVA 列表；"
-            "scope=callsite 的组件按此判定调用点\n"
+            "scope=callsite 的组件按此判定调用点，\n"
+            "#                   表中没有该组件时装载时自动收窄为 global\n"
             "# 启动代理的挂载状态存放在注册表（IFEO）里，不写进本文件。\n"
             "\n";
 
@@ -384,26 +385,6 @@ namespace waf::app {
         return WriteAllBytes(path, DefaultConfig().Dump(kConfigHeader));
     }
 
-    bool ReloadConfig(State & st) {
-        std::string text;
-        if (!ReadAllBytes(st.configPath, text))
-            return false;
-
-        AppConfig cfg;
-        std::string err;
-        if (!AppConfig::Parse(text, cfg, err))
-            return false;
-
-        st.config = std::move(cfg);
-        st.configRaw = std::move(text);
-        st.configDirty = false;
-        {
-            std::string ignored;
-            FileStamp(st.configPath, st.configStamp, ignored); // 刷新时间戳
-        }
-        return true;
-    }
-
     bool SaveConfig(State & st) {
         const std::string text = st.config.Dump(kConfigHeader);
         if (!WriteAllBytes(st.configPath, text))
@@ -414,6 +395,41 @@ namespace waf::app {
         {
             std::string ignored;
             FileStamp(st.configPath, st.configStamp, ignored); // 刷新时间戳
+        }
+        return true;
+    }
+
+    bool ReloadConfig(State & st) {
+        std::string text;
+        if (!ReadAllBytes(st.configPath, text))
+            return false;
+
+        AppConfig cfg;
+        std::string err;
+        if (!AppConfig::Parse(text, cfg, err))
+            return false;
+
+        // 装载即校验：scope=callsite 要求当前策略表里有该组件的调用点 RVA，
+        // 不成立的项（手工编辑或旧版本遗留）自动收窄为 global 并提示用户。
+        const bool scopeFixed = EnforceCallsiteScopes(cfg);
+
+        st.config = std::move(cfg);
+        st.configRaw = std::move(text);
+        st.configDirty = false;
+        {
+            std::string ignored;
+            FileStamp(st.configPath, st.configStamp, ignored); // 刷新时间戳
+        }
+
+        if (scopeFixed) {
+            MessageBoxW(
+                g_hwnd,
+                L"配置里有 hook 组件设为 callsite，但当前策略表没有它的调用点 "
+                L"RVA。\n已自动改为 global 并写回配置文件。",
+                L"WorkAreaFullscreen",
+                MB_ICONWARNING
+            );
+            SaveConfig(st); // 修正写回，避免下次加载重复提示
         }
         return true;
     }

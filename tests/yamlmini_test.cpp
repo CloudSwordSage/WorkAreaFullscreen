@@ -268,6 +268,37 @@ static void TestStrategyHasCallsites() {
     );
 }
 
+// 装载时校验：策略表无对应调用点的 callsite 组件收窄为 global。
+static void TestEnforceCallsiteScopes() {
+    waf::AppConfig cfg;
+    cfg.strategies["s"]["A"] = {0x10};
+    cfg.strategies["s"]["Empty"] = {};
+
+    waf::TargetRule t;
+    t.executable = "game.exe";
+    t.strategy = "s";
+    auto add = [&](const char * name, const char * scope) {
+        waf::HookSetting h;
+        h.name = name;
+        h.scope = scope;
+        t.hooks.push_back(h);
+    };
+    add("A", "callsite");       // 策略表有 RVA -> 保留
+    add("Empty", "callsite");   // 组件在表内但列表为空 -> 收窄
+    add("Missing", "callsite"); // 表内无该组件 -> 收窄
+    add("G", "global");         // 已是 global -> 不动
+    cfg.targets.push_back(t);
+
+    assert(waf::EnforceCallsiteScopes(cfg));
+    assert(cfg.targets[0].hooks[0].scope == "callsite");
+    assert(cfg.targets[0].hooks[1].scope == "global");
+    assert(cfg.targets[0].hooks[2].scope == "global");
+    assert(cfg.targets[0].hooks[3].scope == "global");
+
+    // 已修正的配置再检查不应报改动
+    assert(!waf::EnforceCallsiteScopes(cfg));
+}
+
 // 空容器（Dump 会写成 [] / {}）必须能被读回：界面允许把规则/策略/RVA 删空。
 static void TestEmptyContainers() {
     Node n;
@@ -321,6 +352,7 @@ int main() {
     TestAppConfig();
     TestStrategyTable();
     TestStrategyHasCallsites();
+    TestEnforceCallsiteScopes();
     TestEmptyContainers();
     TestRenameStrategy();
     TestErrors();

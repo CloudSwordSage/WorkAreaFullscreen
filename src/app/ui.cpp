@@ -82,24 +82,9 @@ namespace waf::app {
         void DrawTargets(State & st) {
             AppConfig & cfg = st.config;
 
-            // scope=callsite 要求当前策略表里有该组件的调用点 RVA；没有时该
-            // 设置无意义（调用永远命不中）。统一收窄为 global，未展开的规则
-            // 也一并处理，避免折叠状态下漏改。
-            bool scopeFixed = false;
-            for (auto & t : cfg.targets)
-                for (auto & h : t.hooks) {
-                    if (h.scope == "global")
-                        continue;
-                    if (StrategyHasCallsites(
-                            cfg.strategies,
-                            t.strategy,
-                            h.name
-                        ))
-                        continue;
-                    h.scope = "global";
-                    scopeFixed = true;
-                }
-            if (scopeFixed)
+            // callsite 需要策略表里有该组件 RVA；界面里删 RVA 或改策略后
+            // 可能不成立，这里统一收窄为 global。
+            if (EnforceCallsiteScopes(cfg))
                 st.configDirty = true;
 
             if (ImGui::Checkbox("启用（HookLauncher 读取）", &cfg.enabled))

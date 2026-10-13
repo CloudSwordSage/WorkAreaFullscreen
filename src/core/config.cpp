@@ -242,6 +242,18 @@ namespace waf {
         return comp != st->second.end() && !comp->second.empty();
     }
 
+    bool EnforceCallsiteScopes(AppConfig & cfg) {
+        bool changed = false;
+        for (auto & t : cfg.targets)
+            for (auto & h : t.hooks)
+                if (h.scope != "global" &&
+                    !StrategyHasCallsites(cfg.strategies, t.strategy, h.name)) {
+                    h.scope = "global";
+                    changed = true;
+                }
+        return changed;
+    }
+
     TargetRule NewDefaultRule(const std::string & executable) {
         TargetRule r;
         r.executable = executable;
