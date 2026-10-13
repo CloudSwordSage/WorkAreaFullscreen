@@ -230,6 +230,30 @@ namespace waf {
         return nullptr;
     }
 
+    bool StrategyHasCallsites(
+        const StrategyTable & table,
+        const std::string & strategy,
+        const std::string & component
+    ) {
+        const auto st = table.find(strategy);
+        if (st == table.end())
+            return false;
+        const auto comp = st->second.find(component);
+        return comp != st->second.end() && !comp->second.empty();
+    }
+
+    bool EnforceCallsiteScopes(AppConfig & cfg) {
+        bool changed = false;
+        for (auto & t : cfg.targets)
+            for (auto & h : t.hooks)
+                if (h.scope != "global" &&
+                    !StrategyHasCallsites(cfg.strategies, t.strategy, h.name)) {
+                    h.scope = "global";
+                    changed = true;
+                }
+        return changed;
+    }
+
     TargetRule NewDefaultRule(const std::string & executable) {
         TargetRule r;
         r.executable = executable;

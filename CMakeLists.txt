@@ -113,6 +113,9 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(yamlmini_test tests/yamlmini_test.cpp)
     target_link_libraries(yamlmini_test PRIVATE waf_core)
+    # 自检靠 <cassert>；Release 的 /DNDEBUG 会把断言整个裁掉（测试静默通过）。
+    # 显式撤销，保证任何构建类型下 ctest 都真的执行断言。
+    target_compile_options(yamlmini_test PRIVATE /UNDEBUG)
     add_test(NAME yamlmini COMMAND yamlmini_test)
 
     # 集成自检的目标进程；断言脚本见 tests/run_integration.ps1

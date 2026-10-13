@@ -187,12 +187,22 @@ static void TestAppConfig() {
 }
 
 static void TestErrors() {
+    // 标量序列项（`- item`）是支持的语法：indices 等配置依赖它，不应报错。
+    Node seq;
+    std::string seqErr;
+    assert(
+        yamlmini::Parse("targets:\n  - executable stellaris.exe\n", seq, seqErr)
+    );
+    const Node * items = seq.find("targets");
+    assert(items && items->kind == Node::Seq && items->seq.size() == 1);
+    assert(items->seq[0].kind == Node::Scalar);
+    assert(items->seq[0].str() == "executable stellaris.exe");
+
+    // 缺少 ':' 的映射行应报错，错误信息带 1-based 行号。
     Node n;
     std::string err;
-    assert(
-        !yamlmini::Parse("targets:\n  - executable stellaris.exe\n", n, err)
-    );
-    assert(!err.empty());
+    assert(!yamlmini::Parse("targets:\n  executable stellaris.exe\n", n, err));
+    assert(err.find("line 2") != std::string::npos);
 
     waf::AppConfig cfg;
     std::string cerr;
@@ -244,6 +254,59 @@ static void TestStrategyTable() {
     waf::HkLoadStrategies(other.strategies);
     assert(waf::HkStrategyCallsites("sdl2-gdi", "GetMonitorInfoW").empty());
     assert(waf::HkStrategyCallsites("sdl2-gdi", "GetDeviceCaps").size() == 1);
+}
+
+// callsite 的前提：策略表里有该组件的调用点 RVA。
+static void TestStrategyHasCallsites() {
+    waf::AppConfig cfg = waf::DefaultConfig();
+    assert(
+        waf::StrategyHasCallsites(cfg.strategies, "sdl2-gdi", "GetDeviceCaps")
+    );
+    assert(!waf::StrategyHasCallsites(cfg.strategies, "nope", "GetDeviceCaps"));
+    assert(!waf::StrategyHasCallsites(cfg.strategies, "sdl2-gdi", "Unknown"));
+
+    // 组件存在但 RVA 列表为空 -> 无调用点，callsite 不成立
+    cfg.strategies["sdl2-gdi"]["GetDeviceCaps"] = {};
+    assert(
+        !waf::StrategyHasCallsites(cfg.strategies, "sdl2-gdi", "GetDeviceCaps")
+    );
+
+    // 空策略表
+    cfg.strategies["empty"] = {};
+    assert(
+        !waf::StrategyHasCallsites(cfg.strategies, "empty", "GetDeviceCaps")
+    );
+}
+
+// 装载时校验：策略表无对应调用点的 callsite 组件收窄为 global。
+static void TestEnforceCallsiteScopes() {
+    waf::AppConfig cfg;
+    cfg.strategies["s"]["A"] = {0x10};
+    cfg.strategies["s"]["Empty"] = {};
+
+    waf::TargetRule t;
+    t.executable = "game.exe";
+    t.strategy = "s";
+    auto add = [&](const char * name, const char * scope) {
+        waf::HookSetting h;
+        h.name = name;
+        h.scope = scope;
+        t.hooks.push_back(h);
+    };
+    add("A", "callsite");       // 策略表有 RVA -> 保留
+    add("Empty", "callsite");   // 组件在表内但列表为空 -> 收窄
+    add("Missing", "callsite"); // 表内无该组件 -> 收窄
+    add("G", "global");         // 已是 global -> 不动
+    cfg.targets.push_back(t);
+
+    assert(waf::EnforceCallsiteScopes(cfg));
+    assert(cfg.targets[0].hooks[0].scope == "callsite");
+    assert(cfg.targets[0].hooks[1].scope == "global");
+    assert(cfg.targets[0].hooks[2].scope == "global");
+    assert(cfg.targets[0].hooks[3].scope == "global");
+
+    // 已修正的配置再检查不应报改动
+    assert(!waf::EnforceCallsiteScopes(cfg));
 }
 
 // 空容器（Dump 会写成 [] / {}）必须能被读回：界面允许把规则/策略/RVA 删空。
@@ -298,6 +361,8 @@ int main() {
     TestScalarsAndQuotes();
     TestAppConfig();
     TestStrategyTable();
+    TestStrategyHasCallsites();
+    TestEnforceCallsiteScopes();
     TestEmptyContainers();
     TestRenameStrategy();
     TestErrors();
