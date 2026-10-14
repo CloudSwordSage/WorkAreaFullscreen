@@ -61,3 +61,6 @@ Filename: "{app}\{#AppExeName}"; Description: "启动 {#AppName}"; Flags: nowait
 [UninstallDelete]
 ; 配置与日志存放在 %APPDATA%，卸载时保留用户配置
 Type: files; Name: "{app}\config.example.yaml"
+
+; 许可与免责声明页（含声明文本与勾选确认逻辑）
+#include "disclaimer_page.isinc"

@@ -10,7 +10,7 @@
 > 游戏的反作弊可能视其违规，导致账号处罚或启动失败；错误配置也可能让目标程序无法启动。
 > 本软件按「原样」提供，无任何担保，使用风险与后果由用户自行承担。
 >
-> 完整声明见 [DISCLAIMER.md](DISCLAIMER.md)。
+> 完整声明见 [DISCLAIMER.md](DISCLAIMER.md)；安装时会要求勾选确认。
 
 ## 组成
 
@@ -262,3 +262,6 @@ ISCC.exe installer\WorkAreaFullscreen.iss
 产物为 `dist\WorkAreaFullscreen-Setup-<版本>.exe`。安装包内含三个组件与示例配置；可选任务包括
 开机自启与桌面快捷方式。启动代理（IFEO）不随安装挂载，安装后在界面里按目标按需挂载。
 用户配置存放在 `%APPDATA%`，卸载时保留。
+
+安装向导的第一个页面是「许可与免责声明」，展示完整声明（与 `DISCLAIMER.md` 一致），未勾选
+「我已阅读并同意以上全部声明」时「下一步」不可用。

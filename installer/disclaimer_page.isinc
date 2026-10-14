@@ -1,0 +1,82 @@
+
+[Code]
+// 安装向导的「许可与免责声明」页：展示完整声明，未勾选确认时禁用「下一步」。
+// 声明文本必须与仓库根目录 DISCLAIMER.md 保持一致，修改其一必须同步另一处。
+const
+  DisclaimerText =
+    '本软件是纯质量提升（QoL）工具，仅用于将游戏/应用程序的「无边框全屏」窗口调整为' +
+    '「工作区全屏」（保留任务栏等系统 UI），不修改游戏逻辑、不提供任何游戏内优势。' + #13#10#13#10 +
+    '技术手段说明' + #13#10 +
+    '  本工具通过以下方式实现功能：' + #13#10 +
+    '  - 使用 Windows Image File Execution Options (IFEO) 注册启动代理（需要管理员权限）' + #13#10 +
+    '  - 以调试器身份短暂附加到目标进程' + #13#10 +
+    '  - 向目标进程注入 DLL 并挂钩部分 Win32 API' +
+    '（GetMonitorInfoW、GetDeviceCaps、EnumDisplaySettingsW 等）' + #13#10 +
+    '  这些操作属于系统底层干预，属于灰色地带技术。' + #13#10#13#10 +
+    '用户须知与风险提示' + #13#10#13#10 +
+    '  1. 游戏服务条款（ToS）与反作弊' + #13#10 +
+    '     部分游戏（尤其是带有反作弊系统的联机游戏）可能将 DLL 注入、调试器附加或 API 挂钩视为' +
+    '违规行为，导致账号处罚、封禁或启动失败。本工具不保证对任何游戏的兼容性或安全性，也不对' +
+    '因使用本工具导致的任何账号、进度损失承担责任。' + #13#10#13#10 +
+    '  2. 系统与稳定性风险' + #13#10 +
+    '     - 错误配置或文件缺失可能导致目标程序无法启动' + #13#10 +
+    '     - 游戏更新后调用点（RVA）变化可能导致功能失效（设计上会回退为不改写，不会主动破坏进程）' + #13#10 +
+    '     - 使用 IFEO 后，任何启动该 exe 的行为都会先经过本工具的启动代理' + #13#10#13#10 +
+    '  3. 无担保' + #13#10 +
+    '     本软件按「原样」（AS IS）提供，不提供任何明示或暗示的担保，包括但不限于适销性、' +
+    '特定用途适用性及不侵权。作者不对因使用或无法使用本软件造成的任何直接、间接、附带或后果性' +
+    '损害负责。' + #13#10#13#10 +
+    '  4. 用户责任' + #13#10 +
+    '     - 使用前请自行确认目标游戏是否允许此类修改' + #13#10 +
+    '     - 建议仅在单机或确认安全的环境中使用' + #13#10 +
+    '     - 卸载或恢复原始启动行为请使用工具提供的「摘除启动代理」功能，或手动删除对应 IFEO 注册表项' + #13#10 +
+    '     - 因使用本工具产生的任何后果（包括但不限于账号封禁、数据丢失、系统异常）均由用户自行承担' + #13#10#13#10 +
+    '  5. 非关联声明' + #13#10 +
+    '     本项目与 Paradox Interactive、SDL、Microsoft 或任何游戏开发商/发行商均无任何关联或授权关系。' + #13#10#13#10 +
+    '恢复方法' + #13#10 +
+    '  如需完全恢复原始行为：' + #13#10 +
+    '    HookLauncher.exe --uninstall <目标.exe>' + #13#10 +
+    '  或在界面中点击对应规则的「摘除启动代理」按钮。亦可手动删除 HKLM\SOFTWARE\Microsoft\Windows ' +
+    'NT\CurrentVersion\Image File Execution Options\<目标.exe> 下的 Debugger 值。' + #13#10#13#10 +
+    '继续使用即表示您已阅读、理解并同意以上全部内容。';
+
+var
+  DisclaimerPage: TWizardPage;
+  DisclaimerMemo: TNewMemo;
+  DisclaimerCheck: TNewCheckBox;
+
+procedure DisclaimerCheckClick(Sender: TObject);
+begin
+  // 复选框只在本页可见，因此点击时当前页必定是本页
+  WizardForm.NextButton.Enabled := DisclaimerCheck.Checked;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  // 进入本页时按当前勾选状态决定「下一步」是否可用（Back 回到本页同样适用）
+  if (DisclaimerPage <> nil) and (CurPageID = DisclaimerPage.ID) then
+    WizardForm.NextButton.Enabled := DisclaimerCheck.Checked;
+end;
+
+procedure InitializeWizard;
+begin
+  DisclaimerPage := CreateCustomPage(wpWelcome, '许可与免责声明',
+    '请阅读以下全部内容；勾选底部的确认框后才能继续安装。');
+
+  DisclaimerMemo := TNewMemo.Create(DisclaimerPage);
+  DisclaimerMemo.Parent := DisclaimerPage.Surface;
+  DisclaimerMemo.SetBounds(0, 0, DisclaimerPage.SurfaceWidth,
+    DisclaimerPage.SurfaceHeight - 32);
+  DisclaimerMemo.ReadOnly := True;
+  DisclaimerMemo.ScrollBars := ssVertical;
+  DisclaimerMemo.WordWrap := True;
+  DisclaimerMemo.Lines.Text := DisclaimerText;
+
+  DisclaimerCheck := TNewCheckBox.Create(DisclaimerPage);
+  DisclaimerCheck.Parent := DisclaimerPage.Surface;
+  DisclaimerCheck.SetBounds(0, DisclaimerPage.SurfaceHeight - 24,
+    DisclaimerPage.SurfaceWidth, 24);
+  DisclaimerCheck.Caption := '我已阅读并同意以上全部声明';
+  DisclaimerCheck.Checked := False;
+  DisclaimerCheck.OnClick := @DisclaimerCheckClick;
+end;
