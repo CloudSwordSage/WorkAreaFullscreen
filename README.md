@@ -12,6 +12,33 @@
 >
 > 完整声明见 [DISCLAIMER.md](DISCLAIMER.md)；安装时会要求勾选确认。
 
+## 安装指南
+
+### 获取构建版本
+
+| 版本 | 下载 | 说明 |
+| --- | --- | --- |
+| 正式发行版 | [releases/latest](https://github.com/CloudSwordSage/WorkAreaFullscreen/releases/latest) | 主分支打 Tag 后发布的稳定版本 |
+| Nightly | [releases/tag/nightly](https://github.com/CloudSwordSage/WorkAreaFullscreen/releases/tag/nightly) | `dev` 分支每日预构建的预发布版，产物名含日期与提交短 SHA，会被下一次成功构建替换 |
+
+两者都是 Inno Setup 安装包，内含三个产物与示例配置，安装需要管理员权限。安装向导的第一个页面是
+「许可与免责声明」，未勾选「我已阅读并同意以上全部声明」时无法继续；可选任务包括开机自启与桌面
+快捷方式。安装包**不会**自动挂载启动代理（IFEO），安装后在界面里按目标按需挂载。
+
+### 本地构建
+
+从仓库源码自行构建（需要 MSVC x64；依赖清单与完整命令见[构建](#构建)）：
+
+```powershell
+git clone https://github.com/CloudSwordSage/WorkAreaFullscreen.git
+cd WorkAreaFullscreen
+cmake --preset release
+cmake --build --preset release
+```
+
+产物在 `build\release\`，直接运行 `.\build\release\WorkAreaFullscreen.exe` 即可；需要安装包时按
+[打包](#打包)生成。
+
 ## 组成
 
 | 产物 | 角色 |
