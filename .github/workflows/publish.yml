@@ -1,0 +1,83 @@
+name: publish
+
+# 正式发行的发布通道。只由 release.yml 在创建 v* 注解 Tag 之后通过 workflow_dispatch
+# 显式触发——Tag 用 GITHUB_TOKEN 推送，不会产生 tag push 事件，因此这里既不监听
+# on.push.tags，也不接受 tag push 触发（AGENTS.md 12.3）。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的 v* 注解 Tag（由 release.yml 创建）
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: 校验 Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出 main 完整历史与 Tag
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 断言 Tag 合法且位于 main
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag 必须形如 vMAJOR.MINOR.PATCH，实际为 $TAG"
+            exit 1
+          fi
+          sha=$(git rev-parse "refs/tags/$TAG^{commit}" 2> /dev/null) || {
+            echo "::error::Tag $TAG 在仓库中不存在"
+            exit 1
+          }
+          if ! git merge-base --is-ancestor "$sha" HEAD; then
+            echo "::error::Tag $TAG 指向的提交不在 main 上"
+            exit 1
+          fi
+          echo "::notice::$TAG → $sha"
+
+  build:
+    needs: verify
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ inputs.tag }}
+      artifact-name: WorkAreaFullscreen-Setup
+
+  release:
+    name: 发布 GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: WorkAreaFullscreen-Setup
+          path: dist
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          files=(dist/*.exe)
+          echo "待发布产物: ${files[*]}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --verify-tag \
+              --generate-notes
+          fi
