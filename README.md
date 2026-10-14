@@ -27,7 +27,8 @@
 
 ### 本地构建
 
-从仓库源码自行构建（需要 MSVC x64；依赖清单与完整命令见[构建](#构建)）：
+从源码仓库 [CloudSwordSage/WorkAreaFullscreen](https://github.com/CloudSwordSage/WorkAreaFullscreen.git)
+自行构建（需要 MSVC x64；依赖清单与完整命令见[构建](#构建)）：
 
 ```powershell
 git clone https://github.com/CloudSwordSage/WorkAreaFullscreen.git
