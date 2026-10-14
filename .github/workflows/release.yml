@@ -1,0 +1,115 @@
+name: release
+
+# main 上的正式发行入口（AGENTS.md 12.3）。
+#
+#   dev --(merge --no-ff，提交信息末尾带 Release-Type trailer)--> main
+#     → 本工作流校验该发行合并、依据已有 v* Tag 计算下一个 MAJOR.MINOR.PATCH，
+#       在主分支上创建 v* 注解 Tag
+#     → 用 workflow_dispatch 触发 publish.yml 完成构建、测试与 GitHub Release。
+#
+# 刻意不监听 on.push.tags：Tag 由 GITHUB_TOKEN 推送，tag push 事件不会产生工作流
+# 运行，依赖它触发发布只会静默失败。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 推送 v* 注解 Tag
+  actions: write    # 调度 publish.yml
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: 校验发行并创建 Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出 main 完整历史与 Tag
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 校验发行合并与计算版本号
+        id: plan
+        shell: bash
+        env:
+          # major 属于不可自动决定的操作，必须先在仓库设置该变量为 true
+          ALLOW_MAJOR: ${{ vars.ALLOW_MAJOR_RELEASE }}
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          body=$(git log -1 --format=%B "$sha")
+
+          # 1) 发行只能来自 merge --no-ff 保留下来的合并提交
+          parents=$(git rev-list --parents -n 1 "$sha" | wc -w)
+          if [ "$parents" -ne 3 ]; then
+            echo "::notice::HEAD $sha 不是合并提交，按普通提交处理，跳过发行"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 2) Release-Type trailer 必须唯一、取值合法、且位于提交信息末尾
+          types=$(printf '%s\n' "$body" | grep -cE '^Release-Type: (minor|patch|major)$' || true)
+          if [ "$types" -eq 0 ]; then
+            echo "::notice::没有 Release-Type trailer，按普通提交处理，跳过发行"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last=$(printf '%s\n' "$body" | sed 's/[[:space:]]*$//' | awk 'NF { l = $0 } END { print l }')
+          trailer=$(printf '%s\n' "$body" | grep -E '^Release-Type: (minor|patch|major)$' | sed 's/[[:space:]]*$//')
+          if [ "$types" -ne 1 ] || [ "$last" != "$trailer" ]; then
+            echo "::error::Release-Type trailer 必须唯一，且与正文空一行后位于提交信息末尾"
+            exit 1
+          fi
+          type=${last#Release-Type: }
+
+          # 3) major 需用户显式授权
+          if [ "$type" = "major" ] && [ "${ALLOW_MAJOR:-}" != "true" ]; then
+            echo "::error::major 发行不可自动决定；请先设置仓库变量 ALLOW_MAJOR_RELEASE=true"
+            exit 1
+          fi
+
+          # 4) 由已有正式 Tag 推算下一个版本号（只认同 MAJOR.MINOR.PATCH 形式）
+          latest=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+          cur_ma=0; cur_mi=0; cur_pa=0
+          if [ -n "$latest" ]; then
+            IFS=. read -r cur_ma cur_mi cur_pa <<< "${latest#v}"
+          fi
+          case "$type" in
+            major) version="$((cur_ma + 1)).0.0" ;;
+            minor) version="$cur_ma.$((cur_mi + 1)).0" ;;
+            patch) version="$cur_ma.$cur_mi.$((cur_pa + 1))" ;;
+          esac
+
+          # 5) 版本号不得被占用
+          if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "::error::Tag v$version 已存在，版本号被占用"
+            exit 1
+          fi
+
+          echo "release=true"     >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version"    >> "$GITHUB_OUTPUT"
+          echo "::notice::发行类型 $type，目标版本 v$version"
+
+      - name: 创建并推送 v* 注解 Tag
+        if: steps.plan.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+      - name: 触发发布工作流
+        if: steps.plan.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" -f "tag=$TAG"

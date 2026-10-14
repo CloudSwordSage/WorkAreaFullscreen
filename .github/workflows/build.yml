@@ -1,20 +1,40 @@
 name: build
 
-# 只在打 tag（v*）时发布 Release；平时可用手动触发验证编译。
+# 可复用的构建单元：配置 → 编译 → 单元自检 → 集成自检 → 打包安装程序 → 上传产物。
+#
+# ci（dev/main 日常）、publish（正式发行）、nightly（dev 每日）三条通道都调用它，
+# 保证任何通道发布出去的产物都走过同一条生产路径（见 README「自检」与「打包」）。
 on:
-  push:
-    tags: ['v*']
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: 写入安装包与产物文件名的版本号；前导 v 会被去掉
+        required: false
+        type: string
+        default: '0.0.0'
+      ref:
+        description: 要构建的 git ref 或 commit SHA；留空则用调用方的检出上下文
+        required: false
+        type: string
+        default: ''
+      artifact-name:
+        description: 构建产物的 artifact 名称（下载端必须用同一名称）
+        required: false
+        type: string
+        default: WorkAreaFullscreen-Setup
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
     name: Windows x64
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: 检出源码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: 准备 MSVC x64 环境
         uses: ilammy/msvc-dev-cmd@v1.13.0
@@ -27,8 +47,14 @@ jobs:
       - name: 编译
         run: cmake --build --preset release
 
-      - name: 自检
+      - name: 单元自检（yamlmini / 配置往返）
         run: ctest --preset release
+
+      # 集成自检走生产路径：HookLauncher 以调试器身份启动 probe_host，
+      # 断言注入时机与 rcMonitor -> rcWork / SDL 居中结果。不在 ctest 里。
+      - name: 集成自检（启动代理注入）
+        shell: pwsh
+        run: pwsh -File tests\run_launcher_test.ps1
 
       - name: 安装 Inno Setup
         run: choco install innosetup --no-progress -y
@@ -36,28 +62,17 @@ jobs:
       - name: 打包安装程序
         shell: pwsh
         run: |
-          $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^v', '' } else { '0.0.0' }
+          # 版本号只来自调用方：发行给 vMAJOR.MINOR.PATCH，Nightly 给带日期与短 SHA 的标识
+          $ver = '${{ inputs.version }}' -replace '^v', ''
           $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           & $iscc "/DAppVersion=$ver" installer\WorkAreaFullscreen.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC 打包失败，退出码 $LASTEXITCODE" }
+          Get-ChildItem dist\*.exe | ForEach-Object { Write-Host "产物: $($_.Name)" }
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: WorkAreaFullscreen-Setup
+          name: ${{ inputs.artifact-name }}
           path: dist/*.exe
-
-      - name: 发布 Release
-        if: github.ref_type == 'tag'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag = $env:GITHUB_REF_NAME
-          $files = (Get-ChildItem dist\*.exe).FullName
-          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $files --clobber --repo $env:GITHUB_REPOSITORY
-          } else {
-            gh release create $tag $files --title $tag --generate-notes --repo $env:GITHUB_REPOSITORY
-          }
+          if-no-files-found: error

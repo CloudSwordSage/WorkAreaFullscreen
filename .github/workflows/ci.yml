@@ -1,0 +1,23 @@
+name: ci
+
+# dev / main 两个分支的日常通道：编译 + 单元自检 + 集成自检。
+# 正式发行走 release.yml（main），每日构建走 nightly.yml（dev）。
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: ./.github/workflows/build.yml
+    with:
+      version: '0.0.0'

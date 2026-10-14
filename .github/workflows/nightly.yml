@@ -1,0 +1,118 @@
+name: nightly
+
+# dev 的每日构建通道（AGENTS.md 12.5）。
+#
+# 每天 UTC 00:00 检查前一个 UTC 自然日的 dev 提交：有提交就把该自然日边界上的
+# 最后一个提交构建一次，发布到固定 Tag nightly 的 Pre-release（永不标记 Latest）。
+# 标识用「日期 + 短 SHA」，不占用正式版本号，也不触碰 v* 正式 Tag。
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 要构建的 UTC 日期（YYYYMMDD）；留空取前一个 UTC 自然日
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  pick:
+    name: 选出要构建的提交
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.pick.outputs.found }}
+      commit: ${{ steps.pick.outputs.commit }}
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - name: 检出 dev 完整历史
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: 解析当日提交
+        id: pick
+        shell: bash
+        env:
+          INPUT_DATE: ${{ inputs.date }}
+        run: |
+          set -euo pipefail
+          day="${INPUT_DATE:-$(date -u -d yesterday +%Y%m%d)}"
+          next=$(date -u -d "$day +1 day" +%Y%m%d)
+          since="${day:0:4}-${day:4:2}-${day:6:2} 00:00:00 +0000"
+          until="${next:0:4}-${next:4:2}-${next:6:2} 00:00:00 +0000"
+
+          count=$(git rev-list --count --since="$since" --until="$until" HEAD)
+          if [ "$count" -eq 0 ]; then
+            echo "::notice::$day（UTC）dev 没有提交，跳过本次 Nightly"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          commit=$(git rev-list -1 --until="$until" HEAD)
+          echo "found=true"                        >> "$GITHUB_OUTPUT"
+          echo "commit=$commit"                    >> "$GITHUB_OUTPUT"
+          echo "version=0.0.0-nightly.$day.${commit:0:7}" >> "$GITHUB_OUTPUT"
+          echo "::notice::$day（UTC）共 $count 个提交，构建 $commit"
+
+  build:
+    needs: pick
+    if: needs.pick.outputs.found == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.pick.outputs.version }}
+      ref: ${{ needs.pick.outputs.commit }}
+      artifact-name: WorkAreaFullscreen-Nightly
+
+  publish:
+    name: 更新 nightly Pre-release
+    needs: [pick, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: WorkAreaFullscreen-Nightly
+          path: dist
+
+      - name: 更新 nightly Pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: nightly
+          VERSION: ${{ needs.pick.outputs.version }}
+          COMMIT: ${{ needs.pick.outputs.commit }}
+        run: |
+          set -euo pipefail
+          files=(dist/*.exe)
+          current="${files[0]##*/}"
+          notes=$(printf 'Nightly 构建\n\n版本标识：%s\n提交：%s\n' "$VERSION" "$COMMIT")
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+            # 只保留本次产物，避免 nightly 资产无限累积
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+              while read -r name; do
+                [ "$name" = "$current" ] || gh release delete-asset "$TAG" "$name" --yes --repo "$GITHUB_REPOSITORY"
+              done
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --latest=false \
+              --title "Nightly ($VERSION)" \
+              --notes "$notes"
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Nightly ($VERSION)" \
+              --prerelease \
+              --latest=false \
+              --target "$COMMIT" \
+              --notes "$notes"
+          fi
